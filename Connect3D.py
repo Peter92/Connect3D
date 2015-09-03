@@ -1,290 +1,25 @@
-import itertools, operator
-from collections import defaultdict
+import itertools
+import operator
 import random
-
-
-def calculate_grid_size(grid_data):
-    """Cube root the length of grid_data to find the grid size."""
-    return int(round(pow(len(grid_data), 1.0/3.0), 0))
-
-def split_string(x, n):
-    """Split a list by n characters."""
-    n = int(n)
-    return [x[i:i+n] for i in range(0, len(x), n)]
-    
-def join_list(x):
-    """Convert nested lists into one single list."""
-    return [j for i in x for j in i]
-    
-
-def DrawGrid(grid_data):
-    """Use the grid_data to output a grid of the correct size.
-    Each value in grid_data must be 1 character or formatting will be wrong.
-    
-    >>> grid_data = range(8)
-    
-    >>> DrawGrid(grid_data)
-         ________
-        / 0 / 1 /|
-       /___/___/ |
-      / 2 / 3 /  |
-     /___/___/   |
-    |   |____|___|
-    |   / 4 /|5 /
-    |  /___/_|_/
-    | / 6 / 7|/
-    |/___/___|
-    
-    """
-    grid_size = calculate_grid_size(grid_data)
-    k = 0
-    
-    grid_range = range(grid_size)
-    grid_output = []
-    for j in grid_range:
-        
-        row_top = ' '*(grid_size*2+1) + '_'*(grid_size*4)
-        if j:
-            row_top = '|' + row_top[:grid_size*2-1] + '|' + '_'*(grid_size*2) + '|' + '_'*(grid_size*2-1) + '|'
-        grid_output.append(row_top)
-        
-        for i in grid_range:
-            row_display = ' '*(grid_size*2-i*2) + '/' + ''.join((' ' + str(grid_data[k+x]).ljust(1) + ' /') for x in grid_range)
-            k += grid_size
-            row_bottom = ' '*(grid_size*2-i*2-1) + '/' + '___/'*grid_size
-            
-            if j != grid_range[-1]:
-                row_display += ' '*(i*2) + '|'
-                row_bottom += ' '*(i*2+1) + '|'
-            if j:
-                row_display = row_display[:grid_size*4+1] + '|' + row_display[grid_size*4+2:]
-                row_bottom = row_bottom[:grid_size*4+1] + '|' + row_bottom[grid_size*4+2:]
-                
-                row_display = '|' + row_display[1:]
-                row_bottom = '|' + row_bottom[1:]
-            
-            grid_output += [row_display, row_bottom]
-            
-    print '\n'.join(grid_output)
-            
-class DirectionCalculation(object):
-    """Calculate which directions are possible to move in, based on the 6 directions.
-    Any combination is fine, as long as it doesn't go back on itself, hence why X, Y and Z have been given two
-    values each, as opposed to just using six values.
-    Because the code to calculate score will look in one direction then reverse it, the list then needs to be
-    trimmed down to remove any duplicate directions (eg. up/down and upright/downleft are both duplicates)
-    
-    The code will output the following results, it is possible to use these instead of the class.
-        direction_group = {'Y': 'UD', 'X': 'LR', 'Z': 'FB', ' ': ' '}
-        opposite_direction = ('B', 'D', 'DF', 'LDB', 'DB', 'L', 'LUB', 'LUF', 'LF', 'RU', 'LB', 'LDF', 'RD')
-    """
-    
-    direction_group = {}
-    direction_group['X'] = 'LR'
-    direction_group['Y'] = 'UD'
-    direction_group['Z'] = 'FB'
-    direction_group[' '] = ' '
-    
-    #Come up with all possible directions
-    all_directions = set()
-    for x in [' ', 'X']:
-        for y in [' ', 'Y']:
-            for z in [' ', 'Z']:
-                x_directions = list(direction_group[x])
-                y_directions = list(direction_group[y])
-                z_directions = list(direction_group[z])
-                for i in x_directions:
-                    for j in y_directions:
-                        for k in z_directions:
-                            all_directions.add((i+j+k).replace(' ', ''))
-    
-    #Narrow list down to remove any opposite directions
-    opposite_direction = all_directions.copy()
-    for i in all_directions:
-        if i in opposite_direction:
-            new_direction = ''
-            for j in list(i):
-                for k in direction_group.values():
-                    if j in k:
-                        new_direction += k.replace(j, '')
-            opposite_direction.remove(new_direction)
-
-
-class PointConversion(object):
-    """Used to convert the cell ID to 3D coordinates or vice versa.
-    
-    The cell ID is from 0 to grid_size^3, and coordinates are from 1 to grid_size.
-    This means an ID of 0 is actually (1,1,1), and 3 would be (4,1,1).
-    
-               - X -
-             __1___2_
-        /  1/ 0 / 1 /|
-       Y   /___/___/ |
-      /  2/ 2 / 3 /  |
-         /___/___/   |
-        |   |____|___|
-     | 1|   / 4 /|5 /
-     Z  |  /___/_|_/
-     | 2| / 6 / 7|/
-        |/___/___|
-    
-    Parameters:
-        grid_size:
-            Size of the grid.
-            Type: int
-        
-        i:
-            Cell ID or coordinates.
-            Type int/tuple/list
-    
-    Functions:
-        to_3d:
-            Convert cell ID to 3D coordinate.
-        to_int:
-            Convert 3D coordinate to cell ID.
-    """
-    def __init__(self, grid_size, i):
-        self.grid_size = grid_size
-        self.i = i
-        
-    def to_3d(self):
-        """Convert cell ID to a 3D coordinate.
-        
-        >>> grid_size = 4
-        >>> cell_id = 16
-        
-        >>> PointConversion(grid_size, cell_id).to_3d()
-        (1, 1, 2)
-        """
-        cell_id = int(self.i)
-        z = cell_id / pow(self.grid_size, 2) 
-        cell_id %= pow(self.grid_size, 2)
-        y = cell_id / self.grid_size
-        x = cell_id % self.grid_size
-        return tuple(cell_id+1 for cell_id in (x, y, z))
-    
-    def to_int(self):
-        """Convert 3D coordinates to the cell ID.
-        
-        >>> grid_size = 4
-        >>> coordinates = (4,2,3)
-        
-        >>> PointConversion(grid_size, coordinates).to_int()
-        39
-        """
-        x, y, z = [int(i) for i in self.i]
-        if all(i > 0 for i in (x, y, z)):
-            return (x-1)*pow(self.grid_size, 0) + (y-1)*pow(self.grid_size, 1) + (z-1)*pow(self.grid_size, 2)
-        return None
-
-
-
-class SwapGridData(object):
-    """Use the size of the grid to calculate how flip it on the X, Y, or Z axis.
-    This keeps the grid intact but changes the perspective of the game.
-    
-    Parameters:
-        grid_data:
-            2D list of grid cells, amount must be a cube number.
-            Type: list/tuple
-    """
-    def __init__(self, grid_data):
-        self.grid_data = list(grid_data)
-        self.grid_size = calculate_grid_size(self.grid_data)
-    
-    def x(self):
-        """Flip on the X axis.
-        
-        >>> SwapGridData(range(8)).x()
-        [1, 0, 3, 2, 5, 4, 7, 6]
-        >>> DrawGrid(SwapGridData(range(8)).x())
-             ________
-            / 1 / 0 /|
-           /___/___/ |
-          / 3 / 2 /  |
-         /___/___/   |
-        |   |____|___|
-        |   / 5 /|4 /
-        |  /___/_|_/
-        | / 7 / 6|/
-        |/___/___|
-        """
-        return join_list(x[::-1] for x in split_string(self.grid_data, self.grid_size))
-        
-    def y(self):
-        """Flip on the Y axis.
-        
-        >>> SwapGridData(range(8)).y()
-        [2, 3, 0, 1, 6, 7, 4, 5]
-        >>> DrawGrid(SwapGridData(range(8)).y())
-             ________
-            / 2 / 3 /|
-           /___/___/ |
-          / 0 / 1 /  |
-         /___/___/   |
-        |   |____|___|
-        |   / 6 /|7 /
-        |  /___/_|_/
-        | / 4 / 5|/
-        |/___/___|
-        """
-        group_split = split_string(self.grid_data, pow(self.grid_size, 2))
-        return join_list(join_list(split_string(x, self.grid_size)[::-1]) for x in group_split)
-        
-    def z(self):
-        """Flip on the Z axis.
-        
-        >>> SwapGridData(range(8)).z()
-        [4, 5, 6, 7, 0, 1, 2, 3]
-        >>> DrawGrid(SwapGridData(range(8)).z())
-             ________
-            / 4 / 5 /|
-           /___/___/ |
-          / 6 / 7 /  |
-         /___/___/   |
-        |   |____|___|
-        |   / 0 /|1 /
-        |  /___/_|_/
-        | / 2 / 3|/
-        |/___/___|
-        """
-        return join_list(split_string(self.grid_data, pow(self.grid_size, 2))[::-1])
-        
+from collections import defaultdict
 
 class Connect3D(object):
-    def __init__(self, grid_size=4, _raw_data=None):
+    """Class to store the Connect3D game data.
+    The data is stored in a 1D list, but is converted to a 3D representation for the user.
+    """
+    player_symbols = 'XO'
+    grid_size_recommended = 4
+    
+    def __init__(self, grid_size=grid_size_recommended, _raw_data=None):
         """Set up the grid and which player goes first.
         
         Parameters:
-            grid_size:
-                How long each side of the grid should be.
+            grid_size (int): How long each side of the grid should be.
                 The game works best with even numbers, 4 is recommended.
-                Default: 4
-                Type: int
                 
-            _raw_data:
-                Passed in from __repr__, contains the grid data and current player.
-                Default: None
-                Type: str
-                Format: 'joined(grid_data).current_player'
-        
-        Functions:
-            _get_winning_player:
-                Return list containing the winning player(s)
-            play:
-                Play the game with 2 players.
-            make_move:
-                Update the grid with a new value.
-            shuffle:
-                Attempt to flip the grid based on chance.
-            update_score:
-                Recalculate the score.
-            show_score:
-                Display the score.
-            draw:
-                Display the grid data.
-            reset:
-                Empty the grid data.
+            _raw_data (str or None, optional): Passed in from __repr__, 
+                contains the grid data and current player.
+                Format: "joined(grid_data).current_player"
         """
         
         self.current_player = random.randint(0, 1)
@@ -335,7 +70,56 @@ class Connect3D(object):
     def __repr__(self):
         """Format the data to allow it to be imported again as a new object."""
         grid_data_joined = ''.join(str(i).ljust(1) for i in self.grid_data)
-        return "Connect3D(_raw_data='{}.{}')".format(grid_data_joined, self.current_player)
+        return "Connect3D.from_string('{}.{}')".format(grid_data_joined, self.current_player)
+    
+    def __str__(self):
+        """Use the grid_data to output a grid of the correct size.
+        Each value in grid_data must be 1 character or formatting will be wrong.
+        
+        >>> grid_data = range(8)
+        
+        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in grid_data))
+             ________
+            / 0 / 1 /|
+           /___/___/ |
+          / 2 / 3 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 4 /|5 /
+        |  /___/_|_/
+        | / 6 / 7|/
+        |/___/___|
+        
+        """
+        k = 0
+        
+        grid_range = range(self.grid_size)
+        grid_output = []
+        for j in grid_range:
+            
+            row_top = ' '*(self.grid_size*2+1) + '_'*(self.grid_size*4)
+            if j:
+                row_top = '|' + row_top[:self.grid_size*2-1] + '|' + '_'*(self.grid_size*2) + '|' + '_'*(self.grid_size*2-1) + '|'
+            grid_output.append(row_top)
+            
+            for i in grid_range:
+                row_display = ' '*(self.grid_size*2-i*2) + '/' + ''.join((' ' + str(self.grid_data[k+x]).ljust(1) + ' /') for x in grid_range)
+                k += self.grid_size
+                row_bottom = ' '*(self.grid_size*2-i*2-1) + '/' + '___/'*self.grid_size
+                
+                if j != grid_range[-1]:
+                    row_display += ' '*(i*2) + '|'
+                    row_bottom += ' '*(i*2+1) + '|'
+                if j:
+                    row_display = row_display[:self.grid_size*4+1] + '|' + row_display[self.grid_size*4+2:]
+                    row_bottom = row_bottom[:self.grid_size*4+1] + '|' + row_bottom[self.grid_size*4+2:]
+                    
+                    row_display = '|' + row_display[1:]
+                    row_bottom = '|' + row_bottom[1:]
+                
+                grid_output += [row_display, row_bottom]
+                
+        return '\n'.join(grid_output)
     
     def _get_winning_player(self):
         """Return a list of the player(s) with the highest points.
@@ -361,35 +145,22 @@ class Connect3D(object):
         []
         """
         self.update_score()
-        sorted_points = sorted(self.current_points.iteritems(), key=operator.itemgetter(1), reverse=True)
-        highest_points = sorted([k for k, v in self.current_points.iteritems() if v == sorted_points[0][1]])
-        
-        return highest_points
+        return get_max_dict_keys(self.current_points)
         
         
-    def play(self, player_symbols='XO', grid_shuffle_chance=None):
+    def play(self, multiplayer=False, grid_shuffle_chance=None):
         """Start or continue a game.
         
         Parameters:
-            player_symbols:
-                The two characters to represent each player.
-                Length: 2
-                Default: 'XO'
-                Type: str/list/tuple/int
-            
-            grid_shuffle_chance:
-                Percentage chance to shuffle the grid after each turn.
-                Default: None (use default shuffle chance)
-                Type: int/float
+            multiplayer (bool): If the AI should be swapped with another human player.
+                Default: False
+                
+            grid_shuffle_chance (int, float or None, optional): Percentage chance to shuffle 
+                the grid after each turn.
+                Reverts to the default chance if left as None.
         """
-        #Check there are two symbols
-        if isinstance(player_symbols, (tuple, list)):
-            player_symbols = ''.join(player_symbols)
-        player_symbols = str(player_symbols)
-        same_symbols = len(set(player_symbols)) == 1
-        if len(player_symbols) != 2 or same_symbols:
-            raise ValueError('two{} symbols are needed'.format(' different' if len(set(player_symbols)) == 1 else ''))
         
+        computer_player = True
         self.current_player = int(not self.current_player)
         
         #Game loop
@@ -400,8 +171,8 @@ class Connect3D(object):
             
             self.update_score()
             self.show_score()
+            print self
             was_flipped = self.shuffle(chance=grid_shuffle_chance)
-            self.draw()
             if was_flipped:
                 print "Grid was flipped!"
             
@@ -424,49 +195,54 @@ class Connect3D(object):
             
             
             #Player takes a move, function returns True if it updates the grid, otherwise loop again
-            print "Player {}'s turn...".format(player_symbols[self.current_player])
-            while not self.make_move(player_symbols[self.current_player], raw_input().replace(',', ' ').replace('.', ' ').split()):
-                print "Grid cell is not available, try again."
-                
+            print "Player {}'s turn...".format(self.player_symbols[self.current_player])
+            if not self.current_player or multiplayer:
+                while not self.make_move(self.player_symbols[self.current_player], raw_input().replace(',', ' ').replace('.', ' ').split()):
+                    print "Grid cell is not available, try again."
+            else:
+                ai_go = SimpleC3DAI(self, self.current_player).calculate_next_move()
+                if not self.make_move(self.player_symbols[self.current_player], ai_go):
+                    print "Something unknown went wrong with the AI, apologies if it affected the game."
+                else:
+                    print "AI moved to point {}.".format(PointConversion(self.grid_size, ai_go).to_3d())
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
         
         Parameters:
-            id:
-                ID to write to the grid.
-                Type: str
+            id (str): Character to write into the grid.
             
-            args:
-                Where to place the ID.
-                Can be input as an integer (grid cell number), 3 integers, a tuple or list (3D coordinates)
-                Type: int/tuple/list
+            args (int, tuple or list): Where in the grid to place the ID.
+                Can be input as an integer (grid cell number), 3 integers,
+                a tuple or list (3D coordinates)
         
         >>> C3D = Connect3D(2)
         
         >>> C3D.make_move('a', 1)
         True
-        >>> C3D.make_move('b', -1)
+        >>> C3D.make_move('b', 1)
         False
-        >>> C3D.make_move('c', 2, 2, 2)
+        >>> C3D.make_move('c', -1)
+        False
+        >>> C3D.make_move('d', 2, 2, 2)
         True
-        >>> C3D.make_move('d', [1, 1, 2])
+        >>> C3D.make_move('e', [1, 1, 2])
         True
-        >>> C3D.make_move('d', (1, 1, 3))
+        >>> C3D.make_move('f', (1, 1, 3))
         False
         
         >>> C3D.grid_data
-        ['', 'a', '', '', 'd', '', '', 'c']
-        >>> C3D.draw()
+        ['', 'a', '', '', 'e', '', '', 'd']
+        >>> print C3D
              ________
             /   / a /|
            /___/___/ |
           /   /   /  |
          /___/___/   |
         |   |____|___|
-        |   / d /|  /
+        |   / e /|  /
         |  /___/_|_/
-        | /   / c|/
+        | /   / d|/
         |/___/___|
         """
         
@@ -479,7 +255,7 @@ class Connect3D(object):
                     except ValueError:
                         return False
                 else:
-                    i = PointConversion(self.grid_size, args[0][0]).to_int()
+                    i = PointConversion(self.grid_size, args[0]).to_int()
             else:
                 i = int(args[0])
         else:
@@ -491,7 +267,6 @@ class Connect3D(object):
             return True
         else:
             return False
-            
             
             
     def shuffle(self, chance=None, second_chance=None, repeats=None, no_shuffle=[]):
@@ -528,38 +303,37 @@ class Connect3D(object):
         if repeats is None:
             repeats = 3
         
-        
         #Calculate range of random numbers
         chance = min(100, chance)
         if chance > 0:
-            chance = int(round(300/chance))-1
-        else:
-            chance = 0
+            chance = int(round(400/chance))-1
             
-        #Attempt to flip grid
-        for i in range(repeats):
-            shuffle_num = random.randint(0, chance)
-            if shuffle_num in (0, 1, 2) and shuffle_num not in no_shuffle:
-                no_shuffle.append(shuffle_num)
-                if shuffle_num == 0:
-                    self.grid_data = SwapGridData(self.grid_data).x()
-                if shuffle_num == 1:
-                    self.grid_data = SwapGridData(self.grid_data).y()
-                if shuffle_num == 2:
-                    self.grid_data = SwapGridData(self.grid_data).z()
-                if self.shuffle(chance=second_chance, no_shuffle=no_shuffle) or not not no_shuffle:
-                    return True
-                    
-                    
-                    
+            #Attempt to flip grid
+            for i in range(repeats):
+                shuffle_num = random.randint(0, chance)
+                if shuffle_num in (0, 1, 2, 3) and shuffle_num not in no_shuffle:
+                    no_shuffle.append(shuffle_num)
+                    if shuffle_num == 0:
+                        self.grid_data = SwapGridData(self.grid_data).x()
+                    if shuffle_num == 1:
+                        self.grid_data = SwapGridData(self.grid_data).y()
+                    if shuffle_num == 2:
+                        self.grid_data = SwapGridData(self.grid_data).z()
+                    if shuffle_num == 3:
+                        self.grid_data = SwapGridData(self.grid_data).reverse()
+                    if self.shuffle(chance=second_chance, no_shuffle=no_shuffle) or not not no_shuffle:
+                        return True
+
+
     def update_score(self):
         """Recalculate the score.
         
-        There are 26 total directions from each point, or 13 lines, calculated in the DirectionCalculation() class.
-        For each of the 13 lines, look both ways and count the number of values that match the current player.
+        There are 26 total directions from each point, or 13 lines, calculated in 
+        the DirectionCalculation() class. For each of the 13 lines, look both ways
+        and count the number of values that match the current player.
         
-        This will find any matches from one point, so it's simple to then iterate through every point.
-        A hash of each line is stored to avoid duplicates.
+        This will find any matches from one point, so it's simple to then iterate 
+        through every point. A hash of each line is stored to avoid duplicates.
         """
         
         try:
@@ -618,21 +392,16 @@ class Connect3D(object):
                                 all_matches.add(list_match)
                                 self.current_points[current_player] += 1
                           
-                          
-        
-                    
+
     def show_score(self, digits=False, marker='/'):
         """Print the current points.
         
         Parameters:
-            digits:
-                If the score should be output as a number, or as individual marks.
-                Default: False
-                Type: bool
-            marker:
-                What each point should be displayed as.
-                Default: '/'
-                Type: str
+            digits (bool, optional): If the score should be output as a number,
+                or as individual marks.
+            
+            marker (str, optional): How each point should be displayed if 
+                digits are not being used.
         
         >>> C3D = Connect3D()
         >>> C3D.update_score()
@@ -648,12 +417,373 @@ class Connect3D(object):
         multiply_value = 1 if digits else marker
         print 'Player X: {x}  Player O: {o}'.format(x=multiply_value*(self.current_points['X']), o=multiply_value*self.current_points['O'])
     
-    
-    def draw(self):
-        """Pass the grid data to the draw function."""
-        DrawGrid(self.grid_data)
-        
         
     def reset(self):
         """Empty the grid without creating a new Connect3D object."""
         self.grid_data = ['' for i in range(pow(self.grid_size, 3))]
+
+
+class DirectionCalculation(object):
+    """Calculate which directions are possible to move in, based on the 6 directions.
+    Any combination is fine, as long as it doesn't go back on itself, hence why X, Y 
+    and Z have been given two values each, as opposed to just using six values.
+    
+    Because the code to calculate score will look in one direction then reverse it, 
+    the list then needs to be trimmed down to remove any duplicate directions (eg. 
+    up/down and upright/downleft are both duplicates)
+    
+    The code will output the following results, it is possible to use these instead of the class.
+        direction_group = {'Y': 'UD', 'X': 'LR', 'Z': 'FB', ' ': ' '}
+        opposite_direction = ('B', 'D', 'DF', 'LDB', 'DB', 'L', 'LUB', 'LUF', 'LF', 'RU', 'LB', 'LDF', 'RD')
+    """
+    
+    direction_group = {}
+    direction_group['X'] = 'LR'
+    direction_group['Y'] = 'UD'
+    direction_group['Z'] = 'FB'
+    direction_group[' '] = ' '
+    
+    #Come up with all possible directions
+    all_directions = set()
+    for x in [' ', 'X']:
+        for y in [' ', 'Y']:
+            for z in [' ', 'Z']:
+                x_directions = list(direction_group[x])
+                y_directions = list(direction_group[y])
+                z_directions = list(direction_group[z])
+                for i in x_directions:
+                    for j in y_directions:
+                        for k in z_directions:
+                            all_directions.add((i+j+k).replace(' ', ''))
+    
+    #Narrow list down to remove any opposite directions
+    opposite_direction = all_directions.copy()
+    for i in all_directions:
+        if i in opposite_direction:
+            new_direction = ''
+            for j in list(i):
+                for k in direction_group.values():
+                    if j in k:
+                        new_direction += k.replace(j, '')
+            opposite_direction.remove(new_direction)
+
+
+class PointConversion(object):
+    """Used to convert the cell ID to 3D coordinates or vice versa.
+    Mainly used for inputting the coordinates to make a move.
+    
+    The cell ID is from 0 to grid_size^3, and coordinates are from 1 to grid_size.
+    This means an ID of 0 is actually (1,1,1), and 3 would be (4,1,1).
+    
+               - X -
+             __1___2_
+        /  1/ 0 / 1 /|
+       Y   /___/___/ |
+      /  2/ 2 / 3 /  |
+         /___/___/   |
+        |   |____|___|
+     | 1|   / 4 /|5 /
+     Z  |  /___/_|_/
+     | 2| / 6 / 7|/
+        |/___/___|
+    
+    Parameters:
+        grid_size:
+            Size of the grid.
+            Type: int
+        
+        i:
+            Cell ID or coordinates.
+            Type int/tuple/list
+    
+    Functions:
+        to_3d
+        to_int
+    """
+    def __init__(self, grid_size, i):
+        self.grid_size = grid_size
+        self.i = i
+        
+    def to_3d(self):
+        """Convert cell ID to a 3D coordinate.
+        
+        >>> grid_size = 4
+        >>> cell_id = 16
+        
+        >>> PointConversion(grid_size, cell_id).to_3d()
+        (1, 1, 2)
+        """
+        cell_id = int(self.i)
+        z = cell_id / pow(self.grid_size, 2) 
+        cell_id %= pow(self.grid_size, 2)
+        y = cell_id / self.grid_size
+        x = cell_id % self.grid_size
+        return tuple(cell_id+1 for cell_id in (x, y, z))
+    
+    def to_int(self):
+        """Convert 3D coordinates to the cell ID.
+        
+        >>> grid_size = 4
+        >>> coordinates = (4,2,3)
+        
+        >>> PointConversion(grid_size, coordinates).to_int()
+        39
+        """
+        x, y, z = [int(i) for i in self.i]
+        if all(i > 0 for i in (x, y, z)):
+            return (x-1)*pow(self.grid_size, 0) + (y-1)*pow(self.grid_size, 1) + (z-1)*pow(self.grid_size, 2)
+        return None
+
+
+class SwapGridData(object):
+    """Use the size of the grid to calculate how flip it on the X, Y, or Z axis.
+    The flips keep the grid intact but change the perspective of the game.
+    
+    Parameters:
+        grid_data (list/tuple): 1D list of grid cells, amount must be a cube number.
+    """
+    def __init__(self, grid_data):
+        self.grid_data = list(grid_data)
+        self.grid_size = calculate_grid_size(self.grid_data)
+    
+    def x(self):
+        """Flip on the X axis.
+        
+        >>> SwapGridData(range(8)).x()
+        [1, 0, 3, 2, 5, 4, 7, 6]
+        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).x()))
+             ________
+            / 1 / 0 /|
+           /___/___/ |
+          / 3 / 2 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 5 /|4 /
+        |  /___/_|_/
+        | / 7 / 6|/
+        |/___/___|
+        """
+        return join_list(x[::-1] for x in split_list(self.grid_data, self.grid_size))
+        
+    def y(self):
+        """Flip on the Y axis.
+        
+        >>> SwapGridData(range(8)).y()
+        [2, 3, 0, 1, 6, 7, 4, 5]
+        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).y()))
+             ________
+            / 2 / 3 /|
+           /___/___/ |
+          / 0 / 1 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 6 /|7 /
+        |  /___/_|_/
+        | / 4 / 5|/
+        |/___/___|
+        """
+        group_split = split_list(self.grid_data, pow(self.grid_size, 2))
+        return join_list(join_list(split_list(x, self.grid_size)[::-1]) for x in group_split)
+        
+    def z(self):
+        """Flip on the Z axis.
+        
+        >>> SwapGridData(range(8)).z()
+        [4, 5, 6, 7, 0, 1, 2, 3]
+        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).z()))
+             ________
+            / 4 / 5 /|
+           /___/___/ |
+          / 6 / 7 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 0 /|1 /
+        |  /___/_|_/
+        | / 2 / 3|/
+        |/___/___|
+        """
+        return join_list(split_list(self.grid_data, pow(self.grid_size, 2))[::-1])
+    
+    def reverse(self):
+        """Reverse the grid.
+        
+        >>> SwapGridData(range(8)).reverse()
+        [7, 6, 5, 4, 3, 2, 1, 0]
+        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).reverse()))
+             ________
+            / 7 / 6 /|
+           /___/___/ |
+          / 5 / 4 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 3 /|2 /
+        |  /___/_|_/
+        | / 1 / 0|/
+        |/___/___|
+        """
+        return self.grid_data[::-1]
+
+
+def calculate_grid_size(grid_data):
+    """Cube root the length of grid_data to find the grid size."""
+    return int(round(pow(len(grid_data), 1.0/3.0), 0))
+
+
+def split_list(x, n):
+    """Split a list by n characters."""
+    n = int(n)
+    return [x[i:i+n] for i in range(0, len(x), n)]
+    
+    
+def join_list(x):
+    """Convert nested lists into one single list."""
+    return [j for i in x for j in i]
+        
+        
+def get_max_dict_keys(x):
+    """Return a list of every key containing the max value.
+    
+    Parameters:
+        x (dict): Dictionary to sort and get highest value.
+            It must be a dictionary of integers to work properly.
+    """
+    if x:
+        sorted_dict = sorted(x.iteritems(), key=operator.itemgetter(1), reverse=True)
+        if sorted_dict[0][1]:
+            return sorted([k for k, v in x.iteritems() if v == sorted_dict[0][1]])
+    return []
+  
+  
+class SimpleC3DAI(object):
+    """AI coded to play Connect3D."""
+    
+    def __init__(self, C3DObject, player_num):
+        """Set up the AI for a single move using the current state of Connect3D."""
+        self.C3DObject = C3DObject
+        self.player_num = player_num
+        self.player = self.C3DObject.player_symbols[self.player_num]
+        self.enemy = self.C3DObject.player_symbols[int(not self.player_num)]
+        self.gd_len = len(self.C3DObject.grid_data)
+    
+    def max_cell_points(self):
+        """Get maximum number of points that can be gained from each empty cell,
+        that is not blocked by an enemy value.
+        """
+        max_points = defaultdict(int)
+        filled_grid_data = [i if i else self.player for i in self.C3DObject.grid_data]
+        for cell_id in range(self.gd_len):
+            max_points[cell_id] += self.check_grid(filled_grid_data, cell_id, self.player)
+        return get_max_dict_keys(max_points)
+    
+    def check_for_three(self, grid_data=None):
+        """Find all places where anyone has 3 points in a row.
+        By looking at all the empty spaces, by substituting in 
+        
+        Parameters:
+            grid_data (optional):
+                Pass in a custom grid_data, leave as None to use the Connect3D one.
+                Default: None
+        """
+        if grid_data is None:
+            grid_data = list(self.C3DObject.grid_data)
+        
+        matches = defaultdict(list)
+        for cell_id in range(len(grid_data)):
+            if not grid_data[cell_id]:
+                for current_player in (self.player, self.enemy):
+                    if self.check_grid(grid_data, cell_id, current_player):
+                        matches[current_player].append(cell_id)
+        return matches
+    
+    def look_ahead(self):
+        """Look two moves ahead to detect if someone could get a point.
+        Uses the check_for_three function from within a loop.
+        
+        Will return 1 as the second parameter if it has looked up more than a single move.
+        """
+        #Try initial check
+        match = self.check_for_three()
+        if match:
+            return (match, 0)
+            
+        #For every grid cell, substitute a player into it, then do the check again
+        grid_data = list(self.C3DObject.grid_data)
+        for i in range(self.gd_len):
+            if not self.C3DObject.grid_data[i]:
+                old_value = grid_data[i]
+                for current_player in (self.player, self.enemy):
+                    grid_data[i] = current_player
+                    match = self.check_for_three(grid_data)
+                    if match:
+                        return (match, 1)
+                grid_data[i] = old_value
+                
+        return (defaultdict(list), 0)
+    
+    def check_grid(self, grid_data, cell_id, player):
+        """Duplicate of the Connect3D.update_score method, but set up to check individual cells.
+        
+        Parameters:
+            grid_data (list/tuple): 1D list of grid cells, amount must be a cube number.
+            
+            cell_id (int): The cell ID, or grid_data index to update.
+            
+            player (int): Integer representation of the player, can be 0 or 1.
+        """
+        max_points = 0
+        for i in DirectionCalculation().opposite_direction:
+            
+            #Get a list of directions and calculate movement amount
+            possible_directions = [list(i)]
+            possible_directions += [[j.replace(i, '') for i in possible_directions[0] for j in DirectionCalculation().direction_group.values() if i in j]]
+            direction_movement = sum(self.C3DObject.direction_maths[j] for j in possible_directions[0])
+            
+            #Build list of invalid directions
+            invalid_directions = [[self.C3DObject.direction_edges[j] for j in possible_directions[k]] for k in (0, 1)]
+            invalid_directions = [join_list(j) for j in invalid_directions]
+            
+            num_matches = 1
+            
+            #Use two loops for the opposite directions
+            for j in (0, 1):
+                
+                current_point = cell_id
+                
+                while current_point not in invalid_directions[j] and 0 < current_point < len(grid_data):
+                    current_point += direction_movement * int('-'[:j] + '1')
+                    if grid_data[current_point] == player:
+                        num_matches += 1
+                    else:
+                        break
+            
+            #Add a point if enough matches
+            if num_matches == self.C3DObject.grid_size:
+                 max_points += 1
+                     
+        return max_points
+    
+    def calculate_next_move(self):
+        """Groups together the AI methods in order of importance.
+        Will throw an error if grid_data is full, since the game should have ended by then anyway.
+        """
+        
+        point_based_move, far_away = SimpleC3DAI(self.C3DObject, self.player_num).look_ahead()
+        order_of_importance = [self.enemy, self.player][::int('-'[:int(far_away)]+'1')]
+        
+        if point_based_move[self.enemy]:
+            next_moves = point_based_move[self.enemy]
+            print 'AI State: Blocking opposing player.'
+            
+        elif point_based_move[self.player]:
+            next_moves = point_based_move[self.player]
+            print 'AI State: Gaining points.'
+            
+        else:
+            next_moves = self.max_cell_points()
+            print 'AI State: Random placement.'
+            
+        if not next_moves:
+            next_moves = [i for i in range(self.gd_len) if not self.C3DObject.grid_data[i]]
+            print 'AI State: Struggling.'
+            
+        return random.choice(next_moves)
