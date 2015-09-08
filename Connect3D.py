@@ -12,42 +12,31 @@ class Connect3D(object):
     """
     player_symbols = 'XO'
     grid_size_recommended = 4
+    from_string_separator = '/'
     
-    def __init__(self, grid_size=grid_size_recommended, _raw_data=None):
+    def __init__(self, grid_size=grid_size_recommended):
         """Set up the grid and which player goes first.
         
         Parameters:
             grid_size (int): How long each side of the grid should be.
                 The game works best with even numbers, 4 is recommended.
-                
-            _raw_data (str or None, optional): Passed in from __repr__, 
-                contains the grid data and current player.
-                Format: "joined(grid_data).current_player"
         """
         
-        self.current_player = random.randint(0, 1)
-        self._display_score = False
+        #Set current player
+        try:
+            self.current_player
+        except AttributeError:
+            self.current_player = random.randint(0, 1)
         
-        #Read from _raw_data
-        if _raw_data is not None:
-            split_data = _raw_data.split('.')
-            self.grid_data = list(i if i != ' ' else '' for i in split_data[0])
-            self.grid_size = calculate_grid_size(self.grid_data)
-            if len(self.grid_data) != pow(self.grid_size, 3):
-                self.grid_data = self.grid_data[:pow(self.grid_size, 3)]
-            
-            if len(split_data) > 1:
-                self.current_player = int(int(split_data[1]))
+        #Set up grid
+        try:
+            self.grid_size = int(grid_size)
+        except TypeError:
+            raise TypeError('grid_size must be an integer')
         
-        #Set up class
-        else:
-            try:
-                self.grid_size = int(grid_size)
-            except TypeError:
-                raise TypeError('grid_size must be an integer')
-            self.grid_data = ['' for i in range(pow(grid_size, 3))]
-        
-        
+        self.range_data = range(pow(grid_size, 3))
+        self.grid_data = ['' for i in self.range_data]
+        self.play_data = []
         self.grid_size_squared = pow(self.grid_size, 2)
         
         #Calculate the edge numbers for each direction
@@ -74,7 +63,17 @@ class Connect3D(object):
     def __repr__(self):
         """Format the data to allow it to be imported again as a new object."""
         grid_data_joined = ''.join(str(i).ljust(1) for i in self.grid_data)
-        return "Connect3D.from_string('{}.{}')".format(grid_data_joined, self.current_player)
+        longest_number = len(str(pow(self.grid_size, 3) - 1))
+        
+        repr_format = '{}{s}{}'.format(grid_data_joined, self.current_player, s=self.from_string_separator)
+        
+        if self.play_data is not None and self.range_data is not None:
+            play_data_joined = ''.join(str(i).zfill(longest_number) for i in self.play_data)
+            range_data_joined = ''.join(str(i).zfill(longest_number) for i in self.range_data)
+            repr_format += '{s}{}{s}{}'.format(play_data_joined, range_data_joined, s=self.from_string_separator)
+            
+            
+        return "Connect3D.from_string('{}')".format(repr_format)
     
     def __str__(self):
         """Use the grid_data to output a grid of the correct size.
@@ -82,7 +81,7 @@ class Connect3D(object):
         
         >>> grid_data = range(8)
         
-        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in grid_data))
+        >>> print Connect3D.from_string(''.join(str(i) if i != '' else ' ' for i in grid_data))
              ________
             / 0 / 1 /|
            /___/___/ |
@@ -99,9 +98,6 @@ class Connect3D(object):
         
         grid_range = range(self.grid_size)
         grid_output = []
-        
-        if self._display_score:
-            grid_output.append(self.show_score())
         
         for j in grid_range:
             
@@ -154,48 +150,126 @@ class Connect3D(object):
         """
         self.update_score()
         return get_max_dict_keys(self.current_points)
+    
+    @classmethod
+    def from_string(cls, raw_data):
+        """Create new Connect3D instance from a string.
         
+        Parameters:
+            raw_data (str): Passed in from __repr__, 
+                contains the grid data and current player.
+                Will still work if no player is defined.
+                Format: "joined(grid_data).current_player.joined(zfilled(play_data)).joined(zfilled(range_data))"
+        """
+        split_data = raw_data.split(cls.from_string_separator)
+        grid_data = [i if i != ' ' else '' for i in split_data[0]]
+        grid_size = calculate_grid_size(grid_data)
+        longest_number = len(str(pow(grid_size, 3) - 1))
         
-    def play(self, player1=True, player2=False, grid_shuffle_chance=None):
+        new_c3d_instance = cls(grid_size)
+        
+        new_c3d_instance.grid_data = grid_data
+        new_c3d_instance.play_data = None
+        new_c3d_instance.range_data = None
+        
+        #Get current player
+        if len(split_data) > 1:
+            new_c3d_instance.current_player = split_data[1]
+            
+        #Get range and play data
+        if len(split_data) > 3:
+            formatted_play_data = [int(split_data[2][j:j+longest_number]) for j in range(len(split_data[2]))[::longest_number]]
+            if all(grid_data[i] for i in formatted_play_data) and formatted_play_data == list(set(formatted_play_data)):
+                new_c3d_instance.play_data = formatted_play_data
+                
+            formatted_range_data = [int(split_data[3][j:j+longest_number]) for j in range(len(split_data[3]))[::longest_number]]
+            if sorted(formatted_range_data) == range(pow(grid_size, 3)):
+                new_c3d_instance.range_data = formatted_range_data
+        
+        new_c3d_instance.update_score()
+        
+        return new_c3d_instance
+        
+    @classmethod
+    def from_list(cls, grid_data, player=None, play_data=None, range_data=None):
+        """Create new Connect3D instance from lists.
+        
+        Parameters:
+            grid_data (list/tuple): 1D list of grid cells, amount must be a cube number.
+            
+            player (int or None): Current player to continue the game with.
+            
+            play_data (list or None): List containing the ID of each move currently taken.
+                If range_data is None, this will be set to None.
+            
+            range_data (list or None): List containing the current position of original cell IDs.
+                If play_data is None, this will be set to None.
+        """
+        grid_size = calculate_grid_size(grid_data)
+        new_c3d_instance = cls(grid_size)
+        
+        new_c3d_instance.grid_data = [i if i != ' ' else '' for i in grid_data]
+        
+        if player is not None:
+            new_c3d_instance.current_player = player
+        
+        if play_data is not None and range_data is not None:
+            if not all(grid_data[i] for i in play_data) or not sorted(set(range_data)) == range(pow(grid_size, 3)):
+                play_data = None
+                range_data = None
+        new_c3d_instance.play_data = play_data
+        new_c3d_instance.range_data = range_data
+        
+        new_c3d_instance.update_score()
+        
+        return new_c3d_instance
+        
+    def play(self, p1=False, p2=SimpleC3DAI.bot_difficulty_default, end_when_no_points_left=False):
         """Start or continue a game.
         If using computer players, there is a minimum time delay to avoid it instantly making moves.
         
         Parameters:
-            player1 (bool): If player 1 is a human player.
+            player1 (bool): If player 1 should be played by a computer,
+                and if so, what difficulty level.
             
-            player2 (bool): If player 2 is a human player.
-                
-            grid_shuffle_chance (int, float or None, optional): Percentage chance to shuffle 
-                the grid after each turn.
-                Reverts to the default chance if left as None.
+            player2 (bool): If player 2 should be played by a computer,
+                and if so, what difficulty level.
         """
         
+        players = (p1, p2)
         
         self.current_player = int(not self.current_player)
-        min_time_update = 0.1
+        move_number = 1
+        shuffle_count = 0
+        shuffle_after = 0#3
+        min_time_update = 0.65
         
+        #Display score and grid
+        print
+        self.update_score()
+        print self.show_score()
+        print self
         
         #Game loop
         while True:
+            print
+            print 'Move {}:'.format(move_number/2)
+            move_number += 1
             
             current_time = time.time()
             
             #Switch current player
             self.current_player = int(not self.current_player)
             
-            #Display score and grid
-            self.update_score()
-            self._display_score = True
-            print self
-            self._display_score = False
-            
-            was_flipped = self.shuffle(chance=grid_shuffle_chance)
-            if was_flipped:
-                print "Grid was flipped!"
+            #Check if any points are left to gain
+            points_left = True
+            if end_when_no_points_left:
+                potential_points = {self.player_symbols[j]: Connect3D.from_list([self.player_symbols[j] if i == '' else i for i in self.grid_data]).current_points for j in (0, 1)}
+                if any(self.current_points == potential_points[player] for player in (self.player_symbols[j] for j in (0, 1))):
+                    points_left = False
                 
-            
             #Check if no spaces are left
-            if '' not in self.grid_data:
+            if '' not in self.grid_data or not points_left:
                 winning_player = self._get_winning_player()
                 if len(winning_player) == 1:
                     print 'Player {} won!'.format(winning_player[0])
@@ -212,22 +286,46 @@ class Connect3D(object):
                     break
             
             
-            #Player takes a move, function returns True if it updates the grid, otherwise loop again
             print "Player {}'s turn...".format(self.player_symbols[self.current_player])
-            if (player1 and not self.current_player) or (player2 and self.current_player):
-                while not self.make_move(self.player_symbols[self.current_player], raw_input().replace(',', ' ').replace('.', ' ').split()):
-                    print "Grid cell is not available, try again."
+            if (p1 == False and not self.current_player) or (p2 == False and self.current_player):
+                
+                #Player takes a move, function returns True if it updates the grid, otherwise loop again
+                while True:
+                    player_input = raw_input().replace(',', ' ').replace('.', ' ').split()
+                    player_go = self.make_move(self.player_symbols[self.current_player], player_input)
+                    if player_go is None:
+                        print "Grid cell is not available, try again."
+                    else:
+                        if self.play_data is not None:
+                            self.play_data.append(self.range_data[player_go])
+                        break
             else:
-                ai_go = SimpleC3DAI(self, self.current_player).calculate_next_move()
-                if not self.make_move(self.player_symbols[self.current_player], ai_go):
+                #AI takes a move, will stop the code if it does something wrong
+                ai_go = SimpleC3DAI(self, self.current_player, players[self.current_player]).calculate_next_move()
+                if self.make_move(self.player_symbols[self.current_player], ai_go) is None:
                     raise Connect3DError('Something unknown went wrong with the AI')
                 else:
                     print "AI moved to point {}.".format(PointConversion(self.grid_size, ai_go).to_3d())
+                    if self.play_data is not None:
+                        self.play_data.append(self.range_data[ai_go])
                     
-            #Wait a short while
-            print
-            time.sleep(max(0, min_time_update, time.time()-current_time))
-                    
+                #Wait a short while
+                time.sleep(max(0, min_time_update - (time.time() - current_time)))
+    
+            
+            shuffle_count += 1
+            if shuffle_after and shuffle_count >= shuffle_after:
+                self.shuffle()
+                
+            #Display score and grid
+            self.update_score()
+            print self.show_score()
+            print self
+            if shuffle_after and shuffle_count >= shuffle_after:
+                shuffle_count = 0
+                print "Grid was flipped!"
+                
+    
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -239,20 +337,19 @@ class Connect3D(object):
                 Can be input as an integer (grid cell number), 3 integers,
                 a tuple or list (3D coordinates)
         
+        Returns the ID moved to or None if no move was made.
+        
         >>> C3D = Connect3D(2)
         
         >>> C3D.make_move('a', 1)
-        True
+        1
         >>> C3D.make_move('b', 1)
-        False
         >>> C3D.make_move('c', -1)
-        False
         >>> C3D.make_move('d', 2, 2, 2)
-        True
+        7
         >>> C3D.make_move('e', [1, 1, 2])
-        True
+        4
         >>> C3D.make_move('f', (1, 1, 3))
-        False
         
         >>> C3D.grid_data
         ['', 'a', '', '', 'e', '', '', 'd']
@@ -287,67 +384,46 @@ class Connect3D(object):
         #Add to grid if cell is empty
         if 0 <= i <len(self.grid_data) and not self.grid_data[i] and i is not None:
             self.grid_data[i] = id
-            return True
+            return i
         else:
-            return False
+            return None
             
             
-    def shuffle(self, chance=None, second_chance=None, repeats=None, no_shuffle=[]):
+    def shuffle(self, no_shuffle=[]):
         """Mirror the grid in the X, Y, or Z axis.
         
         Each time one of the directions is flipped, there is a 50% chance of it happening again.
         This means it has the same overall chance to flip, but it is not limited to a single axis.
         
         Parameters:
-            chance:
-                Percent chance of a flip happening.
-                Default: 10
-                Type: int/float
-            
-            second_chance:
-                Percent chance of subsequent flips happening after the first.
-                Default: 50
-                Type: int/float
-            
-            repeats:
-                Number of attempts to flip at the above chance.
-                Default: 3
-                Type: int
-            
-            no_shuffle:
-                List of directions already flipped so it won't reverse anything.
-                Type: list
+            no_shuffle (list): List of directions already flipped to avoid undoing anything.
         """
-        #Set defaults
-        if chance is None:
-            chance = 10
-        if second_chance is None:
-            second_chance = 50
-        if repeats is None:
-            repeats = 3
-        
-        #Calculate range of random numbers
-        chance = min(100, chance)
-        if chance > 0:
-            chance = int(round(400/chance))-1
+        #Attempt to flip grid
+        shuffle_num = random.randint(0, 3)
+        if shuffle_num in range(4) and shuffle_num not in no_shuffle:
+            no_shuffle.append(shuffle_num)
+            if shuffle_num == 0:
+                self.grid_data = SwapGridData(self.grid_data).x()
+                if self.range_data is not None:
+                    self.range_data = SwapGridData(self.range_data).x()
+            elif shuffle_num == 1:
+                self.grid_data = SwapGridData(self.grid_data).y()
+                if self.range_data is not None:
+                    self.range_data = SwapGridData(self.range_data).y()
+            elif shuffle_num == 2:
+                self.grid_data = SwapGridData(self.grid_data).z()
+                if self.range_data is not None:
+                    self.range_data = SwapGridData(self.range_data).z()
+            elif shuffle_num == 3:
+                self.grid_data = SwapGridData(self.grid_data).reverse()
+                if self.range_data is not None:
+                    self.range_data = SwapGridData(self.range_data).reverse()
             
-            #Attempt to flip grid
-            for i in range(repeats):
-                shuffle_num = random.randint(0, chance)
-                if shuffle_num in (0, 1, 2, 3) and shuffle_num not in no_shuffle:
-                    no_shuffle.append(shuffle_num)
-                    if shuffle_num == 0:
-                        self.grid_data = SwapGridData(self.grid_data).x()
-                    if shuffle_num == 1:
-                        self.grid_data = SwapGridData(self.grid_data).y()
-                    if shuffle_num == 2:
-                        self.grid_data = SwapGridData(self.grid_data).z()
-                    if shuffle_num == 3:
-                        self.grid_data = SwapGridData(self.grid_data).reverse()
-                    if self.shuffle(chance=second_chance, no_shuffle=no_shuffle) or not not no_shuffle:
-                        return True
-
-
+        #50% chance to shuffle more than one direction
+        if random.uniform(0, 1) > 0.5 and not all(i in no_shuffle for i in range(4)):
+            self.shuffle(no_shuffle=no_shuffle)
+            
+            
     def update_score(self):
         """Recalculate the score.
         
@@ -414,7 +490,6 @@ class Connect3D(object):
                             if list_match not in all_matches:
                                 all_matches.add(list_match)
                                 self.current_points[current_player] += 1
-                          
 
     def show_score(self, digits=False, marker='/'):
         """Print the current points.
@@ -574,7 +649,7 @@ class SwapGridData(object):
         
         >>> SwapGridData(range(8)).x()
         [1, 0, 3, 2, 5, 4, 7, 6]
-        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).x()))
+        >>> print Connect3D.from_list(SwapGridData(range(8)).x())
              ________
             / 1 / 0 /|
            /___/___/ |
@@ -593,7 +668,7 @@ class SwapGridData(object):
         
         >>> SwapGridData(range(8)).y()
         [2, 3, 0, 1, 6, 7, 4, 5]
-        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).y()))
+        >>> print Connect3D.from_list(SwapGridData(range(8)).y())
              ________
             / 2 / 3 /|
            /___/___/ |
@@ -613,7 +688,7 @@ class SwapGridData(object):
         
         >>> SwapGridData(range(8)).z()
         [4, 5, 6, 7, 0, 1, 2, 3]
-        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).z()))
+        >>> print Connect3D.from_list(SwapGridData(range(8)).z())
              ________
             / 4 / 5 /|
            /___/___/ |
@@ -632,7 +707,7 @@ class SwapGridData(object):
         
         >>> SwapGridData(range(8)).reverse()
         [7, 6, 5, 4, 3, 2, 1, 0]
-        >>> print Connect3D(_raw_data=''.join(str(i) if i != '' else ' ' for i in SwapGridData(range(8)).reverse()))
+        >>> print Connect3D.from_list(SwapGridData(range(8)).reverse())
              ________
             / 7 / 6 /|
            /___/___/ |
@@ -680,13 +755,25 @@ def get_max_dict_keys(x):
 class SimpleC3DAI(object):
     """AI coded to play Connect3D."""
     
-    def __init__(self, C3DObject, player_num):
-        """Set up the AI for a single move using the current state of Connect3D."""
+    bot_difficulty_default = 'medium'
+    
+    def __init__(self, C3DObject, player_num, difficulty=bot_difficulty_default):
+        """Set up the AI for a single move using the current state of Connect3D.
+        
+        Parameters:
+            C3DObject (object): Connect3D object, needed to get the current 
+                state of the game as opposed to passing in lots of values.
+            
+            player_num (int): Which player the AI is.
+            
+            difficulty (string/int): Difficulty level to use for the AI.
+        """
         self.C3DObject = C3DObject
         self.player_num = player_num
-        self.player = self.C3DObject.player_symbols[self.player_num]
-        self.enemy = self.C3DObject.player_symbols[int(not self.player_num)]
+        self.player = Connect3D.player_symbols[1]
+        self.enemy = Connect3D.player_symbols[int(not self.player_num)]
         self.gd_len = len(self.C3DObject.grid_data)
+        self.difficulty = difficulty
     
     def max_cell_points(self):
         """Get maximum number of points that can be gained from each empty cell,
@@ -788,31 +875,64 @@ class SimpleC3DAI(object):
     def calculate_next_move(self):
         """Groups together the AI methods in order of importance.
         Will throw an error if grid_data is full, since the game should have ended by then anyway.
+        
+        The far_away part determins which order to do things in.
+        
+            It's set up so that for n-1 in a row, the most urgent thing is to stop the 
+            opposing player before gaining any points. However, for n-2 in a row, it's 
+            more useful to gain points if possible.
+            
+            By setting order_of_importance to 0, it'll always try block the player 
+            first, and by setting to 1, it'll always try score points regardless of 
+            if the other player will get one too.
         """
         
-        next_moves = []
+        chance_of_changing_tactic, chance_of_not_noticing, chance_of_not_noticing_divide = get_bot_difficulty(self.difficulty)
         
-        if len(''.join(self.C3DObject.grid_data)) > (self.C3DObject.grid_size-1) * 2:
+        grid_data_joined_len = len(''.join(self.C3DObject.grid_data))
+        
+        next_moves = []
+        if grid_data_joined_len > (self.C3DObject.grid_size-2) * 2:
             
             point_based_move, far_away = SimpleC3DAI(self.C3DObject, self.player_num).look_ahead()
-            order_of_importance = [self.enemy, self.player][::int('-'[:int(far_away)]+'1')]
-            grid_data_len = len(''.join(self.C3DObject.grid_data))
+            
+            #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
+            if not far_away:
+                chance_of_not_noticing /= chance_of_not_noticing_divide
+                chance_of_not_noticing = pow(chance_of_not_noticing, pow(grid_data_joined_len / float(len(self.C3DObject.grid_data)), 0.4))
+                
+            ai_noticed = random.uniform(0, 100) > chance_of_not_noticing
+            ai_new_tactic = random.uniform(0, 100) < chance_of_changing_tactic
+            
+            #Set which order to do things in
+            order_of_importance = int('-'[:int(far_away)] + '1')
+            if ai_new_tactic:
+                print 'AI changed tacic.'
+                order_of_importance = random.choice((-1, 1))
+            
+            move1_player = [self.enemy, self.player][::order_of_importance]
+            move1_text = ['Blocking opposing player', 'Gaining points'][::order_of_importance]
             
             state = None
             
-            if point_based_move:
-                if point_based_move[self.enemy]:
-                    next_moves = point_based_move[self.enemy]
-                    state = 'Blocking opposing player'
+            #Make a move based on other points
+            if point_based_move and ai_noticed:
+                if point_based_move[move1_player[0]]:
+                    next_moves = point_based_move[move1_player[0]]
+                    state = move1_text[0]
                     
-                elif point_based_move[self.player]:
-                    next_moves = point_based_move[self.player]
-                    state = 'Gaining points'
-                
+                elif point_based_move[move1_player[1]]:
+                    next_moves = point_based_move[move1_player[1]]
+                    state = move1_text[1]
+            
+            #Make a random move determined by number of possible points
             else:
+                if not ai_noticed:
+                    print "AI didn't notice something."
                 next_moves = self.max_cell_points()
                 state = 'Random placement'
             
+            #Make a totally random move
             if not next_moves:
                 next_moves = [i for i in range(self.gd_len) if not self.C3DObject.grid_data[i]]
                 if state is None:
@@ -822,6 +942,59 @@ class SimpleC3DAI(object):
             next_moves = [i for i in range(self.gd_len) if not self.C3DObject.grid_data[i]]
             state = 'Starting'
                 
-        print 'AI State: ' + state + '.'
+        print 'AI Objective: ' + state + '.'
             
         return random.choice(next_moves)
+
+def get_bot_difficulty(level, _default=SimpleC3DAI.bot_difficulty_default):
+    """Preset parameters for the bot difficulty levels.
+    
+    There are 3 variables to control the chance of doing something differently:
+        Changing Tactic - Normally the computer will give priority to blocking an
+            enemy row of n-1 before completing it's own, and adding to a row of
+            n-2 before blocking the enemy. This is the percent chance to override
+            this behavior.
+        
+        Not Noticing - The chance the computer will miss a row that is almost complete.
+            Without this, the computer will be able to block absolutely everything 
+            unless it is tricked.
+            Leave this quite high for the n-2 rows, since it can be frustrating to
+            have every row blocked before you've even half finished it.
+        
+        Not Noticing Divide - Not noticing rows of n-2 keeps the game flowing, 
+            not noticing rows of n-1 makes it too easy to win. This will reduce the
+            'Not Noticing' chance for rows of n-1 so the computer doesn't look
+            like it's totally blind.
+        
+        In addition to the 'Not Noticing Divide', as the grid is more empty and is
+        easy to see, the chance of not noticing something is reduced.    
+    """
+    difficulty_level = {}
+    difficulty_level[0] = 'beginner'
+    difficulty_level[1] = 'easy'
+    difficulty_level[2] = 'medium'
+    difficulty_level[3] = 'hard'
+    difficulty_level[4] = 'extreme'
+    
+    try:
+        level = difficulty_level[level]
+    except KeyError:
+        level = str(level).lower()
+    
+    if level == difficulty_level[0]:
+        return (75, 95, 1)
+    elif level == difficulty_level[1]:
+        return (50, 75, 2)
+    elif level == difficulty_level[2]:
+        return (40, 40, 4)
+    elif level == difficulty_level[3]:
+        return (20, 20, 4)
+    elif level == difficulty_level[4]:
+        return (0, 0, 1)
+    
+    return bot_difficulty(_default)
+
+
+if __name__ == '__main__':
+    C3D = Connect3D()
+    C3D.play(False, 'beginner')
