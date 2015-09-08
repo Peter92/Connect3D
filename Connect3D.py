@@ -7,14 +7,16 @@ class Connect3DError(Exception):
     pass
     
 class Connect3D(object):
-    """Class to store the Connect3D game data.
+    """Class to store and use the Connect3D game data.
     The data is stored in a 1D list, but is converted to a 3D representation for the user.
     """
     player_symbols = 'XO'
-    grid_size_recommended = 4
+    default_grid_size = 4
+    default_shuffle_count = 3
     from_string_separator = '/'
+    bot_difficulty_default = 'medium'
     
-    def __init__(self, grid_size=grid_size_recommended):
+    def __init__(self, grid_size=default_grid_size):
         """Set up the grid and which player goes first.
         
         Parameters:
@@ -92,7 +94,6 @@ class Connect3D(object):
         |  /___/_|_/
         | / 6 / 7|/
         |/___/___|
-        
         """
         k = 0
         
@@ -224,7 +225,7 @@ class Connect3D(object):
         
         return new_c3d_instance
         
-    def play(self, p1=False, p2=SimpleC3DAI.bot_difficulty_default, end_when_no_points_left=False):
+    def play(self, p1=False, p2=bot_difficulty_default, shuffle_after=default_shuffle_count, end_when_no_points_left=False):
         """Start or continue a game.
         If using computer players, there is a minimum time delay to avoid it instantly making moves.
         
@@ -241,7 +242,7 @@ class Connect3D(object):
         self.current_player = int(not self.current_player)
         move_number = 1
         shuffle_count = 0
-        shuffle_after = 0#3
+        shuffle_after = shuffle_after or self.default_shuffle_count
         min_time_update = 0.65
         
         #Display score and grid
@@ -324,7 +325,6 @@ class Connect3D(object):
             if shuffle_after and shuffle_count >= shuffle_after:
                 shuffle_count = 0
                 print "Grid was flipped!"
-                
     
                 
     def make_move(self, id, *args):
@@ -389,7 +389,7 @@ class Connect3D(object):
             return None
             
             
-    def shuffle(self, no_shuffle=[]):
+    def shuffle(self, no_shuffle=None):
         """Mirror the grid in the X, Y, or Z axis.
         
         Each time one of the directions is flipped, there is a 50% chance of it happening again.
@@ -398,6 +398,8 @@ class Connect3D(object):
         Parameters:
             no_shuffle (list): List of directions already flipped to avoid undoing anything.
         """
+        no_shuffle = no_shuffle or []
+        
         #Attempt to flip grid
         shuffle_num = random.randint(0, 3)
         if shuffle_num in range(4) and shuffle_num not in no_shuffle:
@@ -755,9 +757,7 @@ def get_max_dict_keys(x):
 class SimpleC3DAI(object):
     """AI coded to play Connect3D."""
     
-    bot_difficulty_default = 'medium'
-    
-    def __init__(self, C3DObject, player_num, difficulty=bot_difficulty_default):
+    def __init__(self, C3DObject, player_num, difficulty=Connect3D.bot_difficulty_default):
         """Set up the AI for a single move using the current state of Connect3D.
         
         Parameters:
@@ -872,7 +872,7 @@ class SimpleC3DAI(object):
                      
         return max_points
     
-    def calculate_next_move(self):
+    def calculate_next_move(self, debug=False):
         """Groups together the AI methods in order of importance.
         Will throw an error if grid_data is full, since the game should have ended by then anyway.
         
@@ -907,7 +907,8 @@ class SimpleC3DAI(object):
             #Set which order to do things in
             order_of_importance = int('-'[:int(far_away)] + '1')
             if ai_new_tactic:
-                print 'AI changed tacic.'
+                if debug:
+                    print 'AI changed tacic.'
                 order_of_importance = random.choice((-1, 1))
             
             move1_player = [self.enemy, self.player][::order_of_importance]
@@ -927,7 +928,7 @@ class SimpleC3DAI(object):
             
             #Make a random move determined by number of possible points
             else:
-                if not ai_noticed:
+                if not ai_noticed and debug:
                     print "AI didn't notice something."
                 next_moves = self.max_cell_points()
                 state = 'Random placement'
@@ -941,13 +942,19 @@ class SimpleC3DAI(object):
         else:
             next_moves = [i for i in range(self.gd_len) if not self.C3DObject.grid_data[i]]
             state = 'Starting'
-                
-        print 'AI Objective: ' + state + '.'
+        
+        if debug:
+            print 'AI Objective: ' + state + '.'
             
         return random.choice(next_moves)
 
-def get_bot_difficulty(level, _default=SimpleC3DAI.bot_difficulty_default):
+def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default):
     """Preset parameters for the bot difficulty levels.
+    
+    Parameters:
+        level (str/int): Difficulty level to get the data for.
+        
+        _default (str/int): If level is invalid, use this as the default value.
     
     There are 3 variables to control the chance of doing something differently:
         Changing Tactic - Normally the computer will give priority to blocking an
@@ -997,4 +1004,4 @@ def get_bot_difficulty(level, _default=SimpleC3DAI.bot_difficulty_default):
 
 if __name__ == '__main__':
     C3D = Connect3D()
-    C3D.play(False, 'beginner')
+    C3D.play(False, False)
