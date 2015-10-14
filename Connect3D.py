@@ -401,6 +401,8 @@ class Connect3D(object):
                      'overlay': 'options',
                      'player_options': [],
                      'new_game': False,
+                     'exit': False,
+                     'continue': False,
                      'shuffle': None}
 
         #How long to wait before accepting a move
@@ -416,9 +418,10 @@ class Connect3D(object):
         time_current = time.time()
         time_update = 0.01
         
+        
+        #Initialise various things to update in the code
         reset_colour = None
         block_id = None
-        
         shuffle_count = 0
         moving = False
         moving_start = 0
@@ -430,13 +433,19 @@ class Connect3D(object):
         ai_message = []
         players = (p1, p2)
         shuffle_data = [allow_shuffle, 3]
+        quit_game = False
         
         
         while True:
 
-            #Reset loop
-            clicked = False #extra flag for the options menu
+            #Extra flag for the options menu
+            #since it's not in the event loop
+            clicked = False
             
+            if quit_game:
+                return
+            
+            #Reset loop
             screen.fill(background_colour)
             recalculate = False
             if reset_colour is not None:
@@ -455,15 +464,10 @@ class Connect3D(object):
                 return
         
             #Delay each go
-            if moving or moving_override:
-                if moving_start < time.time() or moving_override:
-                    move_temp = moving_override or moving
-                    if moving_override:
-                        attempted_move = self.make_move(moving_override[1], moving_override[0])
-                        moving_override = None
-                    else:
-                        attempted_move = self.make_move(moving[1], moving[0])
-                        moving = False
+            if moving:
+                if moving_start < time.time():
+                
+                    attempted_move = self.make_move(moving[1], moving[0])
                     if attempted_move is not None:
 
                         move_number += 1
@@ -477,9 +481,12 @@ class Connect3D(object):
                             was_flipped = False
                     else:
                         self.current_player = int(not self.current_player)
-                        print "Invalid move: {}".format(move_temp)
+                        print "Invalid move: {}".format(moving[0])
+                    moving = False
+                    
                 else:
                     self.grid_data[moving[0]] = self.pygame_move_marker
+                    self.grid_data[moving[0]] = 9 - moving[1]
             
             
             #Run the AI
@@ -504,7 +511,7 @@ class Connect3D(object):
             
             if ai_turn is not None and not moving:
                 event_list.append(0)
-                
+            
             for event in event_list:
 
                 #Fix for the AI
@@ -628,6 +635,7 @@ class Connect3D(object):
 
 
             #Draw coloured squares
+            moving_block = None
             for i in self.range_data:
                 if self.grid_data[i] != '':
                     chunk = i / self.segments_squared
@@ -648,7 +656,15 @@ class Connect3D(object):
                     elif self.grid_data[i] == self.pygame_move_marker:
                         block_colour = self.move_colour
                     else:
-                        block_colour = self.player_colours[self.grid_data[i]]
+                        j = self.grid_data[i]
+                        mix_colour = None
+                        if isinstance(j, int) and j > 1:
+                            j = 9 - j
+                            moving_block = square
+                            mix_colour = (255, 128, 128)
+                        block_colour = self.player_colours[j]
+                        if mix_colour is not None:
+                            block_colour = [(block_colour[i] + mix_colour[i]) / 2 for i in range(3)]
                         
                     pygame.draw.polygon(screen,
                                         block_colour,
@@ -656,15 +672,25 @@ class Connect3D(object):
                                          for corner in square],
                                         0)
                     
-                        
+                    
             #Draw grid
             for line in draw_data.line_coordinates:
                 pygame.draw.aaline(screen,
-                                   (0, 0, 0),
+                                   BLACK,
                                    convert.to_canvas(*line[0]),
                                    convert.to_canvas(*line[1]),
                                    1)
-                
+            
+            #Draw outline around latest clicked block
+            '''
+            if moving_block is not None:
+                line_coordinates = [[i, (i+1)%4] for i in range(4)]
+                for line in line_coordinates:
+                    pygame.draw.aaline(screen,
+                                       BLUE,
+                                       convert.to_canvas(*moving_block[line[0]]),
+                                       convert.to_canvas(*moving_block[line[1]]))
+                                       '''
 
             #Draw debug info
             if debug and x is not None and y is not None:
@@ -672,12 +698,12 @@ class Connect3D(object):
                 if debug_coordinates is not None:
                     if all(i is not None for i in debug_coordinates):
                         pygame.draw.aaline(screen,
-                                    (255, 0, 0),
+                                    RED,
                                     (x_raw, y_raw),
                                     convert.to_canvas(*debug_coordinates[1]),
                                     1)
                         pygame.draw.aaline(screen,
-                                    (255, 0, 0),
+                                    RED,
                                     convert.to_canvas(*debug_coordinates[0]),
                                     convert.to_canvas(*debug_coordinates[1]),
                                     2)
@@ -785,9 +811,9 @@ class Connect3D(object):
 
             
             #Draw overlay
-            if overlay_used:
+            if flag_dict['overlay']:
                 overlay_width_padding = 50
-                overlay_height_padding = 30
+                overlay_height_padding = 70
                 overlay_width = screen_width - overlay_width_padding * 2
                 overlay_height = 500
                 header_padding = font_padding[1] * 5
@@ -796,30 +822,47 @@ class Connect3D(object):
                 font_lg = pygame.font.Font(font_file, 36)
                 font_md = pygame.font.Font(font_file, 50)
                 font_sm = pygame.font.Font(font_file, 24)
+                font_lg_size = font_lg.render('', 1, BLACK).get_rect()[3]
+                font_lg_multiplier = 3
+                    
+                    
                 
+
+                #Draw background
+                pygame.draw.rect(screen, WHITE, (overlay_width_padding, overlay_height_padding,
+                                                 overlay_width, overlay_height))
+                pygame.draw.rect(screen, BLACK, (overlay_width_padding, overlay_height_padding,
+                                                 overlay_width, overlay_height), 1)
+
+                current_text_height = overlay_height_padding + font_padding[1]
+
+                #Set page titles
+                if move_number + bool(moving) and overlay_used == 'options':
+                    title_message = 'Options'
+                    subtitle_message = ''
+                else:
+                    title_message = 'Connect 3D'
+                    subtitle_message = 'By Peter Hunt'
+                 
+                #Draw title
+                title_text = font_lg.render(title_message, 1, BLACK)
+                title_size = title_text.get_rect()[2:]
+                screen.blit(title_text, (font_padding[0] + overlay_width_padding,
+                                     current_text_height))
+                current_text_height += font_padding[1] + title_size[1]
+                
+                subtitle_text = font_sm.render(subtitle_message, 1, BLACK)
+                subtitle_size = subtitle_text.get_rect()[2:]
+                screen.blit(subtitle_text, (font_padding[0] + overlay_width_padding,
+                                     current_text_height))
+                current_text_height += subtitle_size[1]
+                
+                if subtitle_message:
+                    current_text_height += header_padding
+                
+
                 if overlay_used == 'options':
-
-                    #Draw background
-                    pygame.draw.rect(screen, WHITE, (overlay_width_padding, overlay_height_padding,
-                                                     overlay_width, overlay_height))
-                    pygame.draw.rect(screen, BLACK, (overlay_width_padding, overlay_height_padding,
-                                                     overlay_width, overlay_height), 1)
-
-                    current_text_height = overlay_height_padding + font_padding[1]
-
-
-                    #Draw title
-                    title1_text = font_lg.render('Connect 3D', 1, BLACK)
-                    title2_text = font_sm.render('By Peter Hunt', 1, BLACK)
-                    title1_size = title1_text.get_rect()[2:]
-                    title2_size = title2_text.get_rect()[2:]
-                    screen.blit(title1_text, (font_padding[0] + overlay_width_padding,
-                                         current_text_height))
-                    current_text_height += font_padding[1] + title1_size[1]
-                    screen.blit(title2_text, (font_padding[0] + overlay_width_padding,
-                                         current_text_height))
-                    current_text_height += header_padding + title2_size[1]
-
+                                
                     #Player options
                     p1_text = font_sm.render('Player 0: ', 1, BLACK)
                     p1_size = p1_text.get_rect()[2:]
@@ -932,6 +975,7 @@ class Connect3D(object):
                     screen.blit(flip_grid_text,
                                 (font_padding[0] + overlay_width_padding,
                                  current_text_height))
+                    background_width = screen_width - overlay_width_padding * 2
 
                     options = ['Yes', 'No']
                     options_text = [font_sm.render(i, 1, BLACK)
@@ -1007,7 +1051,7 @@ class Connect3D(object):
                     current_text_height += header_padding * 2 + flip_grid_size[1]
                     
                     
-                    #Ask to restart game
+                    #Tell to restart game
                     if move_number:
                         restart_message = 'Restart game to apply settings.'
                         restart_text = font_sm.render(restart_message,
@@ -1022,40 +1066,82 @@ class Connect3D(object):
                         current_text_height += header_padding + flip_grid_size[1]
 
                     
-                    #Draw the 'New Game' field
-                    new_game_colour = (GREY if not flag_dict['new_game']
-                                       else BLACK)
+                    #New game button
+                    flag_name = 'new_game'
+                    button_text = 'New Game' if move_number else 'Start'
+                    if self._pygame_button(screen, font_lg, flag_dict, 
+                                           flag_name, button_text, x_raw, 
+                                           y_raw, clicked, screen_width, 
+                                           current_text_height, padding, 
+                                           font_lg_multiplier, bool(move_number)):
+                        reset_all = True
+                        flag_dict['overlay'] = None
                     
-                    new_game_message = 'New Game' if move_number else 'Start Game'
-                    new_game_text = font_lg.render(new_game_message, 
-                                                   1, 
-                                                   new_game_colour)
-                    new_game_size = new_game_text.get_rect()[2:]
-                    new_game_width = (screen_width - new_game_size[0]) / 2
-                    new_game_mult = 3
-                    new_game_square = (new_game_width - padding * (new_game_mult + 1),
-                            current_text_height - padding * new_game_mult,
-                            new_game_size[0] + padding * (2 * new_game_mult + 2),
-                            new_game_size[1] + padding * (2 * new_game_mult - 1))
-                    
-                    if flag_dict['new_game']:
-                        flag_dict['new_game'] = False
-                        
-                    pygame.draw.rect(screen, BLACK, new_game_square, 1)                    
-                    
-                    screen.blit(new_game_text, (new_game_width,
-                                                current_text_height))
-
-                    #Detect if mouse is over it
-                    if (new_game_square[0] < x_raw < new_game_square[0] + new_game_square[2]
-                        and new_game_square[1] < y_raw < new_game_square[1] + new_game_square[3]):
-                        flag_dict['new_game'] = True
-                        if clicked:
-                            reset_all = True
+                    if move_number:
+                        flag_name = 'continue'
+                        button_text = 'Continue'
+                        if self._pygame_button(screen, font_lg, flag_dict, 
+                                               flag_name, button_text, x_raw, 
+                                               y_raw, clicked, screen_width, 
+                                               current_text_height, padding, 
+                                               font_lg_multiplier, -1):
                             flag_dict['overlay'] = None
+                        
+                    current_text_height += header_padding + font_lg_size
+                    
+                    #Quit game button
+                    flag_name = 'exit'
+                    button_text = 'Exit'
+                    if self._pygame_button(screen, font_lg, flag_dict, 
+                                           flag_name, button_text, x_raw, 
+                                           y_raw, clicked, screen_width, 
+                                           current_text_height, padding, 
+                                           font_lg_multiplier):
+                        quit_game = True
+                    
+                            
                         
                     
             pygame.display.flip()
+    
+    def _pygame_button(self, screen, font, flag_dict, flag_name, message, x_raw, y_raw,
+                       clicked, screen_width, height, padding, multiplier, width_multipler=0):
+    
+        #Set up text
+        text_colour = BLACK if flag_dict[flag_name] else GREY
+        text_object = font.render(message, 1, text_colour)
+        text_size = text_object.get_rect()[2:]
+        
+        
+        centre_offset = screen_width / 10 * width_multipler
+        text_x = (screen_width - text_size[0]) / 2
+        if width_multipler > 0:
+            text_x += text_size[0] / 2
+        if width_multipler < 0:
+            text_x -= text_size[0] / 2
+        text_x += centre_offset
+        
+        
+        text_square = (text_x - padding * (multiplier + 1),
+                       height - padding * multiplier,
+                       text_size[0] + padding * (2 * multiplier + 2),
+                       text_size[1] + padding * (2 * multiplier - 1))
+    
+        #pygame.draw.rect(screen, BLACK, text_square)
+        screen.blit(text_object, (text_x, height))
+        
+        flag_dict[flag_name] = False
+        
+        #Detect if mouse is over it
+        if (text_square[0] < x_raw < text_square[0] + text_square[2]
+            and text_square[1] < y_raw < text_square[1] + text_square[3]):
+            flag_dict[flag_name] = True
+            if clicked:
+                return True
+                
+        return False
+                
+                
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -1112,7 +1198,7 @@ class Connect3D(object):
             i = PointConversion(self.segments, tuple(args)).to_int()
         
         #Add to grid if cell is empty
-        if 0 <= i < len(self.grid_data) and self.grid_data[i] in (self.pygame_overlay_marker, self.pygame_move_marker, '') and i is not None:
+        if 0 <= i < len(self.grid_data) and self.grid_data[i] not in (0, 1) and i is not None:
             self.grid_data[i] = id
             return i
         else:
