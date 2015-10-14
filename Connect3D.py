@@ -2,25 +2,56 @@ import itertools
 import operator
 import random
 import time
+import pygame
+import math
 from collections import defaultdict
 class Connect3DError(Exception):
     pass
+'''
+Things to do:
+Start game on options menu
+Esc toggles options menu
+
+'''
+
+BACKGROUND = (250, 250, 255)
+LIGHTBLUE = (86, 190, 255)
+LIGHTGREY = (200, 200, 200)
+GREY = (128, 128, 128)
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+YELLOW = (255, 255, 0)
+CYAN = (0, 255, 255)
+MAGENTA = (255, 0, 255)
+SELECTION = {'Default': [WHITE, LIGHTGREY],
+             'Hover': [None, BLACK],
+             'Waiting': [None, BLACK],
+             'Selected': [GREEN, None]}
     
 class Connect3D(object):
     """Class to store and use the Connect3D game data.
     The data is stored in a 1D list, but is converted to a 3D representation for the user.
     """
     player_symbols = 'XO'
-    default_grid_size = 4
+    default_segments = 4
     default_shuffle_count = 3
     from_string_separator = '/'
     bot_difficulty_default = 'medium'
     
-    def __init__(self, grid_size=default_grid_size):
+    pygame_overlay_marker = '/'
+    pygame_move_marker = '!'
+    player_colours = [GREEN, LIGHTBLUE]
+    empty_colour = YELLOW
+    move_colour = RED
+    
+    def __init__(self, segments=default_segments):
         """Set up the grid and which player goes first.
         
         Parameters:
-            grid_size (int): How long each side of the grid should be.
+            segments (int): How long each side of the grid should be.
                 The game works best with even numbers, 4 is recommended.
         """
         
@@ -32,30 +63,34 @@ class Connect3D(object):
         
         #Set up grid
         try:
-            self.grid_size = int(grid_size)
+            self.segments = int(segments)
         except TypeError:
-            raise TypeError('grid_size must be an integer')
-        
-        self.range_data = range(pow(grid_size, 3))
-        self.grid_data = ['' for i in self.range_data]
+            raise TypeError('segments must be an integer')
+
+
+
         self.play_data = []
-        self.grid_size_squared = pow(self.grid_size, 2)
+        self.segments_squared = pow(self.segments, 2)
+        self.segments_cubed = pow(self.segments, 3)
+        self.range_data = range(self.segments_cubed)
+        self.grid_data = ['' for i in self.range_data]
+        self.update_score()
         
         #Calculate the edge numbers for each direction
         self.direction_edges = {}
-        self.direction_edges['U'] = range(self.grid_size_squared)
-        self.direction_edges['D'] = range(self.grid_size_squared*(self.grid_size-1), self.grid_size_squared*self.grid_size)
-        self.direction_edges['R'] = [i*self.grid_size+self.grid_size-1 for i in range(self.grid_size_squared)]
-        self.direction_edges['L'] = [i*self.grid_size for i in range(self.grid_size_squared)]
-        self.direction_edges['F'] = [i*self.grid_size_squared+j+self.grid_size_squared-self.grid_size for i in range(self.grid_size) for j in range(self.grid_size)]
-        self.direction_edges['B'] = [i*self.grid_size_squared+j for i in range(self.grid_size) for j in range(self.grid_size)]
+        self.direction_edges['U'] = range(self.segments_squared)
+        self.direction_edges['D'] = range(self.segments_squared*(self.segments-1), self.segments_squared*self.segments)
+        self.direction_edges['R'] = [i*self.segments+self.segments-1 for i in range(self.segments_squared)]
+        self.direction_edges['L'] = [i*self.segments for i in range(self.segments_squared)]
+        self.direction_edges['F'] = [i*self.segments_squared+j+self.segments_squared-self.segments for i in range(self.segments) for j in range(self.segments)]
+        self.direction_edges['B'] = [i*self.segments_squared+j for i in range(self.segments) for j in range(self.segments)]
         self.direction_edges[' '] = []
         
         #Calculate the addition needed to move in each direction
         self.direction_maths = {}
-        self.direction_maths['D'] = self.grid_size_squared
+        self.direction_maths['D'] = self.segments_squared
         self.direction_maths['R'] = 1
-        self.direction_maths['F'] = self.grid_size
+        self.direction_maths['F'] = self.segments
         self.direction_maths['U'] = -self.direction_maths['D']
         self.direction_maths['L'] = -self.direction_maths['R']
         self.direction_maths['B'] = -self.direction_maths['F']
@@ -65,7 +100,7 @@ class Connect3D(object):
     def __repr__(self):
         """Format the data to allow it to be imported again as a new object."""
         grid_data_joined = ''.join(str(i).ljust(1) for i in self.grid_data)
-        longest_number = len(str(pow(self.grid_size, 3) - 1))
+        longest_number = len(str(pow(self.segments, 3) - 1))
         
         repr_format = '{}{s}{}'.format(grid_data_joined, self.current_player, s=self.from_string_separator)
         
@@ -97,27 +132,27 @@ class Connect3D(object):
         """
         k = 0
         
-        grid_range = range(self.grid_size)
+        grid_range = range(self.segments)
         grid_output = []
         
         for j in grid_range:
             
-            row_top = ' '*(self.grid_size*2+1) + '_'*(self.grid_size*4)
+            row_top = ' '*(self.segments*2+1) + '_'*(self.segments*4)
             if j:
-                row_top = '|' + row_top[:self.grid_size*2-1] + '|' + '_'*(self.grid_size*2) + '|' + '_'*(self.grid_size*2-1) + '|'
+                row_top = '|' + row_top[:self.segments*2-1] + '|' + '_'*(self.segments*2) + '|' + '_'*(self.segments*2-1) + '|'
             grid_output.append(row_top)
             
             for i in grid_range:
-                row_display = ' '*(self.grid_size*2-i*2) + '/' + ''.join((' ' + str(self.grid_data[k+x]).ljust(1) + ' /') for x in grid_range)
-                k += self.grid_size
-                row_bottom = ' '*(self.grid_size*2-i*2-1) + '/' + '___/'*self.grid_size
+                row_display = ' '*(self.segments*2-i*2) + '/' + ''.join((' ' + str(self.grid_data[k+x]).ljust(1) + ' /') for x in grid_range)
+                k += self.segments
+                row_bottom = ' '*(self.segments*2-i*2-1) + '/' + '___/'*self.segments
                 
                 if j != grid_range[-1]:
                     row_display += ' '*(i*2) + '|'
                     row_bottom += ' '*(i*2+1) + '|'
                 if j:
-                    row_display = row_display[:self.grid_size*4+1] + '|' + row_display[self.grid_size*4+2:]
-                    row_bottom = row_bottom[:self.grid_size*4+1] + '|' + row_bottom[self.grid_size*4+2:]
+                    row_display = row_display[:self.segments*4+1] + '|' + row_display[self.segments*4+2:]
+                    row_bottom = row_bottom[:self.segments*4+1] + '|' + row_bottom[self.segments*4+2:]
                     
                     row_display = '|' + row_display[1:]
                     row_bottom = '|' + row_bottom[1:]
@@ -164,10 +199,10 @@ class Connect3D(object):
         """
         split_data = raw_data.split(cls.from_string_separator)
         grid_data = [i if i != ' ' else '' for i in split_data[0]]
-        grid_size = calculate_grid_size(grid_data)
-        longest_number = len(str(pow(grid_size, 3) - 1))
+        segments = calculate_segments(grid_data)
+        longest_number = len(str(pow(segments, 3) - 1))
         
-        new_c3d_instance = cls(grid_size)
+        new_c3d_instance = cls(segments)
         
         new_c3d_instance.grid_data = grid_data
         new_c3d_instance.play_data = None
@@ -184,7 +219,7 @@ class Connect3D(object):
                 new_c3d_instance.play_data = formatted_play_data
                 
             formatted_range_data = [int(split_data[3][j:j+longest_number]) for j in range(len(split_data[3]))[::longest_number]]
-            if sorted(formatted_range_data) == range(pow(grid_size, 3)):
+            if sorted(formatted_range_data) == range(pow(segments, 3)):
                 new_c3d_instance.range_data = formatted_range_data
         
         new_c3d_instance.update_score()
@@ -206,8 +241,8 @@ class Connect3D(object):
             range_data (list or None): List containing the current position of original cell IDs.
                 If play_data is None, this will be set to None.
         """
-        grid_size = calculate_grid_size(grid_data)
-        new_c3d_instance = cls(grid_size)
+        segments = calculate_segments(grid_data)
+        new_c3d_instance = cls(segments)
         
         new_c3d_instance.grid_data = [i if i != ' ' else '' for i in grid_data]
         
@@ -215,7 +250,7 @@ class Connect3D(object):
             new_c3d_instance.current_player = player
         
         if play_data is not None and range_data is not None:
-            if not all(grid_data[i] for i in play_data) or not sorted(set(range_data)) == range(pow(grid_size, 3)):
+            if not all(grid_data[i] for i in play_data) or not sorted(set(range_data)) == range(pow(segments, 3)):
                 play_data = None
                 range_data = None
         new_c3d_instance.play_data = play_data
@@ -225,7 +260,7 @@ class Connect3D(object):
         
         return new_c3d_instance
         
-    def play(self, p1=False, p2=bot_difficulty_default, shuffle_after=default_shuffle_count, end_when_no_points_left=False):
+    def _old_play(self, p1=False, p2=bot_difficulty_default, shuffle_after=default_shuffle_count, end_when_no_points_left=False):
         """Start or continue a game.
         If using computer players, there is a minimum time delay to avoid it instantly making moves.
         
@@ -302,11 +337,11 @@ class Connect3D(object):
                         break
             else:
                 #AI takes a move, will stop the code if it does something wrong
-                ai_go = SimpleC3DAI(self, self.current_player, players[self.current_player]).calculate_next_move()
+                ai_go = SimpleC3DAI(self, self.current_player, players[self.current_player]).calculate_next_move()[0]
                 if self.make_move(self.player_symbols[self.current_player], ai_go) is None:
                     raise Connect3DError('Something unknown went wrong with the AI')
                 else:
-                    print "AI moved to point {}.".format(PointConversion(self.grid_size, ai_go).to_3d())
+                    print "AI moved to point {}.".format(PointConversion(self.segments, ai_go).to_3d())
                     if self.play_data is not None:
                         self.play_data.append(self.range_data[ai_go])
                     
@@ -325,7 +360,702 @@ class Connect3D(object):
             if shuffle_after and shuffle_count >= shuffle_after:
                 shuffle_count = 0
                 print "Grid was flipped!"
-    
+
+    def play(self, p1=False, p2=bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False,
+             screen_width=640, screen_height=860,
+             default_length=200, default_angle=24):
+
+        self.current_player = int(not self.current_player)
+
+        pygame.init()
+        #try:
+        #    pygame.init()
+        #except NameError:            
+        #    return self._old_play(p1, p2, shuffle_x_goes, end_when_no_points_left)
+        
+        font_file = 'Miss Monkey.ttf'
+        try:
+            pygame.font.Font(font_file, 0)
+        except IOError:
+            raise IOError('unable to load font - download from http://www.dafont.com/miss-monkey.font')
+            font_file = None
+            
+            
+        convert = CoordinateConvert(screen_width, screen_height)
+        screen = pygame.display.set_mode((screen_width, screen_height))
+        pygame.display.set_caption('Connect 3D')
+        background_colour = BACKGROUND
+        font_padding = (10, 5)
+        padding = 2
+        display_offset = (50, 50)
+        debug = True
+
+        draw_data = GridDrawData(default_length,
+                                 self.segments,
+                                 default_angle,
+                                 padding = default_angle / self.segments)
+
+        #Flags for held down keys
+        flag_dict = {'angle': 0,
+                     'size': 0,
+                     'overlay': 'options',
+                     'player_options': [],
+                     'new_game': False,
+                     'shuffle': None}
+
+        #How long to wait before accepting a move
+        moving_wait = 0.5
+        
+        #For controlling how the angle and length of grid update
+        angle_increment = 0.25
+        angle_max = 30
+        length_exponential = 1.1
+        length_increment = 0.5
+        length_multiplier = 0.01
+        
+        time_current = time.time()
+        time_update = 0.01
+        
+        reset_colour = None
+        block_id = None
+        
+        shuffle_count = 0
+        moving = False
+        moving_start = 0
+        moving_override = None
+        move_number = 0
+        reset_all = False
+        was_flipped = False
+        ai_turn = None
+        ai_message = []
+        players = (p1, p2)
+        shuffle_data = [allow_shuffle, 3]
+        
+        
+        while True:
+
+            #Reset loop
+            clicked = False #extra flag for the options menu
+            
+            screen.fill(background_colour)
+            recalculate = False
+            if reset_colour is not None:
+                if self.grid_data[reset_colour] == self.pygame_overlay_marker:
+                    self.grid_data[reset_colour] = ''
+            overlay_used = None
+
+            #Check if no spaces are left
+            if '' not in self.grid_data:
+                winning_player = self._get_winning_player()
+                if len(winning_player) == 1:
+                    print 'Player {} won!'.format(winning_player[0])
+                else:
+                    print 'The game was a draw!'
+                pygame.quit()
+                return
+        
+            #Delay each go
+            if moving or moving_override:
+                if moving_start < time.time() or moving_override:
+                    move_temp = moving_override or moving
+                    if moving_override:
+                        attempted_move = self.make_move(moving_override[1], moving_override[0])
+                        moving_override = None
+                    else:
+                        attempted_move = self.make_move(moving[1], moving[0])
+                        moving = False
+                    if attempted_move is not None:
+
+                        move_number += 1
+                        self.update_score()
+                        shuffle_count += 1
+                        if shuffle_count >= shuffle_data[1] and shuffle_data[0]:
+                            shuffle_count = 0
+                            self.shuffle()
+                            was_flipped = True
+                        else:
+                            was_flipped = False
+                    else:
+                        self.current_player = int(not self.current_player)
+                        print "Invalid move: {}".format(move_temp)
+                else:
+                    self.grid_data[moving[0]] = self.pygame_move_marker
+            
+            
+            #Run the AI
+            if players[self.current_player] is not False:
+                if not moving and flag_dict['overlay'] is None:
+                    ai_turn, ai_message = SimpleC3DAI(self, self.current_player, difficulty=players[self.current_player]).calculate_next_move()
+            else:
+                ai_turn = None
+            
+            #Mouse information
+            x_raw, y_raw = pygame.mouse.get_pos()
+            x, y = convert.to_pygame(x_raw, y_raw)
+            block_id_object = MouseToBlockID(x, y, draw_data)
+            block_id = block_id_object.calculate()
+            is_taken = True
+            if block_id is not None and ai_turn is None:
+                is_taken = self.grid_data[block_id] != ''
+
+        
+            #Event loop
+            event_list = pygame.event.get()
+            
+            if ai_turn is not None and not moving:
+                event_list.append(0)
+                
+            for event in event_list:
+
+                #Fix for the AI
+                try:
+                    event_type = event.type
+                except AttributeError:
+                    event_type = 'mouse'
+
+                if event_type == pygame.QUIT:
+                    return
+
+                #Get single key presses
+                if event_type == pygame.KEYDOWN:
+                    recalculate = True
+
+                    if event.key == pygame.K_ESCAPE:
+                        if not flag_dict['overlay']:
+                            flag_dict['overlay'] = 'options'
+                        else:
+                            flag_dict['overlay'] = None
+                    
+                    if event.key == pygame.K_RIGHTBRACKET:
+                        self.segments += 1
+                        reset_all = True
+                        
+                    if event.key == pygame.K_LEFTBRACKET:
+                        self.segments -= 1
+                        self.segments = max(1, self.segments)
+                        reset_all = True
+
+                    if event.key == pygame.K_UP:
+                        flag_dict['angle'] = 1
+
+                    if event.key == pygame.K_DOWN:
+                        flag_dict['angle'] = -1
+
+                    if event.key == pygame.K_RIGHT:
+                        flag_dict['size'] = 1
+
+                    if event.key == pygame.K_LEFT:
+                        flag_dict['size'] = -1
+
+                        
+                #Get mouse clicks
+                if event_type == pygame.MOUSEBUTTONDOWN:
+                    clicked = True
+                    
+                if (event_type == 'mouse' or clicked) and not moving and flag_dict['overlay'] is None:
+                    if ai_turn is None and event_type != 'mouse':
+                        clicked = True
+                        if not is_taken and not players[self.current_player]:
+                            moving = (block_id, self.current_player)
+                            moving_start = time.time() + moving_wait
+                            self.current_player = int(not self.current_player)
+
+                    elif event_type == 'mouse':
+                        moving = (ai_turn, self.current_player)
+                        moving_start = time.time() + moving_wait
+                        self.current_player = int(not self.current_player)
+
+                        
+            #Get held down key presses
+            key = pygame.key.get_pressed()
+            if flag_dict['angle']:
+                if not (key[pygame.K_UP] or key[pygame.K_DOWN]):
+                    flag_dict['angle'] = 0
+                    
+                elif time_current < time.time() - time_update:
+                    draw_data.angle += angle_increment * flag_dict['angle']
+                    recalculate = True
+            
+            if flag_dict['size']:
+                if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
+                    flag_dict['size'] = 0
+                    
+                elif time_current < time.time() - time_update:
+                    length_exp = (max(length_increment,
+                                     (pow(draw_data.length, length_exponential)
+                                      - 1 / length_increment))
+                                  * length_multiplier)
+                    draw_data.length += length_exp * flag_dict['size']
+                    recalculate = True
+
+            if flag_dict['overlay']:
+                #if not key[pygame.K_F1]:
+                #    flag_dict['overlay'] = None
+                overlay_used = flag_dict['overlay']
+
+                
+            #Highlight square
+            if not is_taken and not moving and not overlay_used:
+                self.grid_data[block_id] = self.pygame_overlay_marker
+                reset_colour = block_id
+            
+            #Reinitialise the grid
+            if reset_all:
+                reset_all = False
+                shuffle_data[0] = allow_shuffle
+                players = (p1, p2)
+                self = Connect3D(self.segments)
+                moving = False
+                move_number = 0
+                reset_colour = None
+                recalculate = True
+                
+
+            #Recalculate the grid object
+            if recalculate:
+                draw_data.segments = self.segments
+                draw_data.length = max((pow(1 / length_increment, 2)
+                                        * draw_data.segments),
+                                       draw_data.length,
+                                       2)
+                draw_data.length = float(draw_data.length)
+                draw_data.angle = max(angle_increment, min(89,
+                                                           draw_data.angle,
+                                                           angle_max))
+                draw_data.angle = float(draw_data.angle)
+                draw_data._calculate()
+                time_current = time.time()
+
+
+            #Draw coloured squares
+            for i in self.range_data:
+                if self.grid_data[i] != '':
+                    chunk = i / self.segments_squared
+                    coordinate = list(draw_data.relative_coordinates[i % self.segments_squared])
+                    coordinate[1] -= chunk * draw_data.chunk_height
+                    
+                    square = [coordinate,
+                              (coordinate[0] + draw_data.size_x_sm,
+                               coordinate[1] - draw_data.size_y_sm),
+                              (coordinate[0],
+                               coordinate[1] - draw_data.size_y_sm * 2),
+                              (coordinate[0] - draw_data.size_x_sm,
+                               coordinate[1] - draw_data.size_y_sm),
+                              coordinate]
+
+                    if self.grid_data[i] == self.pygame_overlay_marker:
+                        block_colour = self.empty_colour
+                    elif self.grid_data[i] == self.pygame_move_marker:
+                        block_colour = self.move_colour
+                    else:
+                        block_colour = self.player_colours[self.grid_data[i]]
+                        
+                    pygame.draw.polygon(screen,
+                                        block_colour,
+                                        [convert.to_canvas(*corner)
+                                         for corner in square],
+                                        0)
+                    
+                        
+            #Draw grid
+            for line in draw_data.line_coordinates:
+                pygame.draw.aaline(screen,
+                                   (0, 0, 0),
+                                   convert.to_canvas(*line[0]),
+                                   convert.to_canvas(*line[1]),
+                                   1)
+                
+
+            #Draw debug info
+            if debug and x is not None and y is not None:
+                debug_coordinates = block_id_object.calculate(debug=1)
+                if debug_coordinates is not None:
+                    if all(i is not None for i in debug_coordinates):
+                        pygame.draw.aaline(screen,
+                                    (255, 0, 0),
+                                    (x_raw, y_raw),
+                                    convert.to_canvas(*debug_coordinates[1]),
+                                    1)
+                        pygame.draw.aaline(screen,
+                                    (255, 0, 0),
+                                    convert.to_canvas(*debug_coordinates[0]),
+                                    convert.to_canvas(*debug_coordinates[1]),
+                                    2)
+
+                font = pygame.font.Font(font_file, 16)
+                
+                #Format the text output
+                msg_segments = self.segments
+                msg_angle = draw_data.angle
+                msg_len = draw_data.length
+                x_coordinate = block_id_object.width
+                z_coordinate = block_id_object.height
+                y_coordinate = block_id_object.y_coordinate
+                msg_chunk = (x_coordinate, z_coordinate, y_coordinate)
+                msg_x_seg = tuple(block_id_object.find_x_from_chunk())
+                msg_y_seg = tuple(block_id_object.find_y_from_chunk())
+                msg_possible = tuple(i + y_coordinate * self.segments_squared
+                                for i in block_id_object.find_possible_blocks())
+                msg_weight = block_id_object.calculate(debug=2)
+                
+                messages = ['DEBUG INFO',
+                            'Segments: {}'.format(msg_segments),
+                            'Angle: {}'.format(msg_angle),
+                            'Side length: {}'.format(msg_len),
+                            'Coordinates: {}'.format((x_raw, y_raw)),
+                            'Chunk: {}'.format(msg_chunk),
+                            'X Slice: {}'.format(msg_x_seg),
+                            'Y Slice: {}'.format(msg_y_seg),
+                            'Possible blocks: {}'.format(msg_possible),
+                            'Block weight: {}'.format(msg_weight),
+                            'Block ID: {}'.format(block_id)]
+                font_render = [font.render(i, 1, BLACK)
+                               for i in messages]
+                font_size = [i.get_rect()[2:] for i in font_render]
+                for i in range(len(messages)):
+                    message_height = screen_height - sum(j[1] for j in font_size[i:])
+                    screen.blit(font_render[i], (0, message_height))
+
+                #Format the AI text output
+                ai_message = [i.replace('[', '(').replace(']', ')')[:50] for i in ai_message]
+                font_render = [font.render(i, 1, BLACK)
+                               for i in ai_message]
+                font_size = [i.get_rect()[2:] for i in font_render]
+
+                for i in range(len(ai_message)):
+                    message_height = screen_height - sum(j[1] for j in font_size[i:])
+                    screen.blit(font_render[i], (screen_width - font_size[i][0], message_height))
+
+
+            #Format scores
+            point_marker = '/'
+            font = pygame.font.Font(font_file, 24)
+            p1_font_top = font.render('Player 0',
+                                      1,
+                                      (0, 0, 0),
+                                      self.player_colours[0])
+            p1_font_size = p1_font_top.get_rect()[2:]
+            p2_font_top = font.render('Player 1',
+                                      1,
+                                      (0, 0, 0),
+                                      self.player_colours[1])
+            font = pygame.font.Font(font_file, 30)
+            p1_font_bottom = font.render(point_marker * self.current_points[0],
+                                         1,
+                                         (0, 0, 0))
+            p2_font_bottom = font.render(point_marker * self.current_points[1],
+                                         1,
+                                         (0, 0, 0))
+            p2_font_size = (p2_font_top.get_rect()[2:],
+                            p2_font_bottom.get_rect()[2:])
+
+            screen.blit(p1_font_top,
+                        (font_padding[0], font_padding[1]))
+            screen.blit(p2_font_top,
+                        (screen_width - p2_font_size[0][0] - font_padding[0],
+                         font_padding[1]))
+            
+            screen.blit(p1_font_bottom,
+                        (font_padding[0], font_padding[1] + p1_font_size[1]))
+            screen.blit(p2_font_bottom,
+                        (screen_width - p2_font_size[1][0] - font_padding[0],
+                         font_padding[1] + p1_font_size[1]))
+
+            font = pygame.font.Font(font_file, 36)
+            player_go_message = "Player {}'s turn!".format(self.current_player)
+            player_go_font = font.render(player_go_message,
+                                         1,
+                                         (0, 0, 0))
+            player_go_size = player_go_font.get_rect()[2:]
+
+            screen.blit(player_go_font,
+                        ((screen_width - player_go_size[0]) / 2,
+                         font_padding[1] * 4))
+
+            if was_flipped:
+                font = pygame.font.Font(font_file, 18)
+                flipped_message = 'Grid was flipped!'
+                flipped_font = font.render(flipped_message,
+                                         1,
+                                         (0, 0, 0))
+                flipped_size = flipped_font.get_rect()[2:]
+                screen.blit(flipped_font,
+                            ((screen_width - flipped_size[0]) / 2,
+                             font_padding[1] * 5 + player_go_size[1]))
+
+            
+            #Draw overlay
+            if overlay_used:
+                overlay_width_padding = 50
+                overlay_height_padding = 30
+                overlay_width = screen_width - overlay_width_padding * 2
+                overlay_height = 500
+                header_padding = font_padding[1] * 5
+                
+                #Set font sizes
+                font_lg = pygame.font.Font(font_file, 36)
+                font_md = pygame.font.Font(font_file, 50)
+                font_sm = pygame.font.Font(font_file, 24)
+                
+                if overlay_used == 'options':
+
+                    #Draw background
+                    pygame.draw.rect(screen, WHITE, (overlay_width_padding, overlay_height_padding,
+                                                     overlay_width, overlay_height))
+                    pygame.draw.rect(screen, BLACK, (overlay_width_padding, overlay_height_padding,
+                                                     overlay_width, overlay_height), 1)
+
+                    current_text_height = overlay_height_padding + font_padding[1]
+
+
+                    #Draw title
+                    title1_text = font_lg.render('Connect 3D', 1, BLACK)
+                    title2_text = font_sm.render('By Peter Hunt', 1, BLACK)
+                    title1_size = title1_text.get_rect()[2:]
+                    title2_size = title2_text.get_rect()[2:]
+                    screen.blit(title1_text, (font_padding[0] + overlay_width_padding,
+                                         current_text_height))
+                    current_text_height += font_padding[1] + title1_size[1]
+                    screen.blit(title2_text, (font_padding[0] + overlay_width_padding,
+                                         current_text_height))
+                    current_text_height += header_padding + title2_size[1]
+
+                    #Player options
+                    p1_text = font_sm.render('Player 0: ', 1, BLACK)
+                    p1_size = p1_text.get_rect()[2:]
+                    screen.blit(p1_text, (font_padding[0] + overlay_width_padding,
+                                          current_text_height))
+                    p1_text_height = current_text_height
+                    
+                    current_text_height += font_padding[1] + p1_size[1]
+                    p2_text = font_sm.render('Player 1: ', 1, BLACK)
+                    p2_size = p2_text.get_rect()[2:]
+                    screen.blit(p2_text, (font_padding[0] + overlay_width_padding,
+                                          current_text_height))
+
+                    #Player options - AI selection
+                    options = ['Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme']
+                    options_text = [font_sm.render(i, 1, BLACK) for i in options]
+                    options_size = [i.get_rect()[2:] for i in options_text]
+                    height_list = (p1_text_height, current_text_height)
+                    players_unsaved = (p1, p2)
+                    option_square_list = defaultdict(list)
+                    for j in range(2):
+
+                        #Colour the squares
+                        if players_unsaved[j] is False:
+                            unsaved_player = -1
+                        else:
+                            unsaved_player = get_bot_difficulty(players_unsaved[j],
+                                                                 _debug=True)
+                        if players[j] is False:
+                            original_player = -1
+                        else:
+                            original_player = get_bot_difficulty(players[j], _debug=True)
+
+                        #Draw each square
+                        for i in range(len(options)):
+                            
+                            width_offset = (sum(j[0] for j in options_size[:i])
+                                            + font_padding[0] * (i + 2)
+                                            + (p2_size if j else p1_size)[0]
+                                            + overlay_width_padding)
+
+                            #Set colours
+                            option_colours = list(SELECTION['Default'])
+                            
+                            if i == unsaved_player or unsaved_player < 0 and not i:
+                                option_colour = list(SELECTION['Waiting'])
+                                rect_colour, text_colour = option_colour
+                                if rect_colour is not None:
+                                    option_colours[0] = rect_colour
+                                if text_colour is not None:
+                                    option_colours[1] = text_colour
+                                    
+                            if i == original_player or original_player < 0 and not i:
+                                option_colour = list(SELECTION['Selected'])
+                                rect_colour, text_colour = option_colour
+                                if rect_colour is not None:
+                                    option_colours[0] = rect_colour
+                                if text_colour is not None:
+                                    option_colours[1] = text_colour
+                            
+                            if [j, i] == flag_dict['player_options']:
+                                flag_dict['player_options'] = []
+                                option_colour = list(SELECTION['Hover'])
+                                rect_colour, text_colour = option_colour
+                                if rect_colour is not None:
+                                    option_colours[0] = rect_colour
+                                if text_colour is not None:
+                                    option_colours[1] = text_colour
+                                
+                            rect_colour, text_colour = option_colours
+                            
+                            option_square = (width_offset - padding,
+                                             height_list[j] - padding,
+                                             options_size[i][0] + padding * 2,
+                                             options_size[i][1] + padding)
+                            option_square_list[j].append(option_square)
+
+                            pygame.draw.rect(screen, rect_colour, option_square)
+                            
+                            screen.blit(font_sm.render(options[i], 1, text_colour),
+                                        (width_offset, height_list[j]))
+
+                    #Find if player has clicked on a new option
+                    for j in option_square_list:
+                        for i in range(len(option_square_list[j])):
+                            option_square = option_square_list[j][i]
+                            if (option_square[0] < x_raw < option_square[0] + option_square[2]
+                                and option_square[1] < y_raw < option_square[1] + option_square[3]):
+
+                                player_set = i-1
+                                if player_set < 0:
+                                    player_set = False
+                                flag_dict['player_options'] = [j, i]
+                                if clicked:
+                                    if not j:
+                                        p1 = player_set
+                                    else:
+                                        p2 = player_set
+                                    if not move_number:
+                                        players = (p1, p2)
+
+
+                    current_text_height += header_padding + p2_size[1]
+
+                    #Ask whether to flip the grid
+                    flip_grid_text = font_sm.render('Flip grid every 3 goes?',
+                                                    1, BLACK)
+
+                    flip_grid_size = flip_grid_text.get_rect()[2:]
+                    screen.blit(flip_grid_text,
+                                (font_padding[0] + overlay_width_padding,
+                                 current_text_height))
+
+                    options = ['Yes', 'No']
+                    options_text = [font_sm.render(i, 1, BLACK)
+                                    for i in options]
+                    options_size = [i.get_rect()[2:] for i in options_text]
+                    option_square_list = []
+                    
+                    for i in range(len(options)):
+                        width_offset = (sum(j[0] for j in options_size[:i])
+                                        + font_padding[0] * (i + 2)
+                                        + flip_grid_size[0] + overlay_width_padding)
+
+                        option_square = (width_offset - padding,
+                                         current_text_height - padding,
+                                         options_size[i][0] + padding * 2,
+                                         options_size[i][1] + padding)
+                        option_square_list.append(option_square)
+
+
+                        #Set colours
+                        option_colours = list(SELECTION['Default'])
+
+                        if (not i and allow_shuffle
+                            or i and not allow_shuffle):
+                            option_colour = list(SELECTION['Waiting'])
+                            rect_colour, text_colour = option_colour
+                            if rect_colour is not None:
+                                option_colours[0] = rect_colour
+                            if text_colour is not None:
+                                option_colours[1] = text_colour
+
+                        if (not i and shuffle_data[0]
+                            or i and not shuffle_data[0]):
+                            option_colour = list(SELECTION['Selected'])
+                            rect_colour, text_colour = option_colour
+                            if rect_colour is not None:
+                                option_colours[0] = rect_colour
+                            if text_colour is not None:
+                                option_colours[1] = text_colour
+
+                        if flag_dict['shuffle'] is not None:
+                            if (not i and flag_dict['shuffle']
+                                or i and not flag_dict['shuffle']):
+                                option_colour = list(SELECTION['Hover'])
+                                rect_colour, text_colour = option_colour
+                                if rect_colour is not None:
+                                    option_colours[0] = rect_colour
+                                if text_colour is not None:
+                                    option_colours[1] = text_colour
+                                    
+                        rect_colour, text_colour = option_colours
+
+                        pygame.draw.rect(screen, rect_colour, option_square)
+                        screen.blit(font_sm.render(options[i],
+                                                   1,
+                                                   text_colour),
+                                    (width_offset, current_text_height))
+
+                    
+                    #Find if player has clicked on a new option
+                    flag_dict['shuffle'] = None
+                    for i in range(len(option_square_list)):
+                        option_square = option_square_list[i]
+                        if (option_square[0] < x_raw < option_square[0] + option_square[2]
+                            and option_square[1] < y_raw < option_square[1] + option_square[3]):
+                            flag_dict['shuffle'] = not i
+                            if clicked:
+                                allow_shuffle = not i
+                                if not move_number:
+                                    shuffle_data[0] = allow_shuffle
+                            
+                            
+                    current_text_height += header_padding * 2 + flip_grid_size[1]
+                    
+                    
+                    #Ask to restart game
+                    if move_number:
+                        restart_message = 'Restart game to apply settings.'
+                        restart_text = font_sm.render(restart_message,
+                                                        1, BLACK)
+
+                        restart_size = restart_text.get_rect()[2:]
+                        screen.blit(restart_text,
+                                    ((screen_width - restart_size[0]) / 2,
+                                     current_text_height))    
+                                            
+
+                        current_text_height += header_padding + flip_grid_size[1]
+
+                    
+                    #Draw the 'New Game' field
+                    new_game_colour = (GREY if not flag_dict['new_game']
+                                       else BLACK)
+                    
+                    new_game_message = 'New Game' if move_number else 'Start Game'
+                    new_game_text = font_lg.render(new_game_message, 
+                                                   1, 
+                                                   new_game_colour)
+                    new_game_size = new_game_text.get_rect()[2:]
+                    new_game_width = (screen_width - new_game_size[0]) / 2
+                    new_game_mult = 3
+                    new_game_square = (new_game_width - padding * (new_game_mult + 1),
+                            current_text_height - padding * new_game_mult,
+                            new_game_size[0] + padding * (2 * new_game_mult + 2),
+                            new_game_size[1] + padding * (2 * new_game_mult - 1))
+                    
+                    if flag_dict['new_game']:
+                        flag_dict['new_game'] = False
+                        
+                    pygame.draw.rect(screen, BLACK, new_game_square, 1)                    
+                    
+                    screen.blit(new_game_text, (new_game_width,
+                                                current_text_height))
+
+                    #Detect if mouse is over it
+                    if (new_game_square[0] < x_raw < new_game_square[0] + new_game_square[2]
+                        and new_game_square[1] < y_raw < new_game_square[1] + new_game_square[3]):
+                        flag_dict['new_game'] = True
+                        if clicked:
+                            reset_all = True
+                            flag_dict['overlay'] = None
+                        
+                    
+            pygame.display.flip()
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -375,14 +1105,14 @@ class Connect3D(object):
                     except ValueError:
                         return False
                 else:
-                    i = PointConversion(self.grid_size, args[0]).to_int()
+                    i = PointConversion(self.segments, args[0]).to_int()
             else:
                 i = int(args[0])
         else:
-            i = PointConversion(self.grid_size, tuple(args)).to_int()
+            i = PointConversion(self.segments, tuple(args)).to_int()
         
         #Add to grid if cell is empty
-        if 0 <= i <len(self.grid_data) and not self.grid_data[i] and i is not None:
+        if 0 <= i < len(self.grid_data) and self.grid_data[i] in (self.pygame_overlay_marker, self.pygame_move_marker, '') and i is not None:
             self.grid_data[i] = id
             return i
         else:
@@ -390,40 +1120,25 @@ class Connect3D(object):
             
             
     def shuffle(self, no_shuffle=None):
-        """Mirror the grid in the X, Y, or Z axis.
+        """Mirror the grid in the X, Y, or Z axis."""
         
-        Each time one of the directions is flipped, there is a 50% chance of it happening again.
-        This means it has the same overall chance to flip, but it is not limited to a single axis.
-        
-        Parameters:
-            no_shuffle (list): List of directions already flipped to avoid undoing anything.
-        """
-        no_shuffle = no_shuffle or []
-        
-        #Attempt to flip grid
-        shuffle_num = random.randint(0, 3)
-        if shuffle_num in range(4) and shuffle_num not in no_shuffle:
-            no_shuffle.append(shuffle_num)
-            if shuffle_num == 0:
-                self.grid_data = SwapGridData(self.grid_data).x()
-                if self.range_data is not None:
-                    self.range_data = SwapGridData(self.range_data).x()
-            elif shuffle_num == 1:
-                self.grid_data = SwapGridData(self.grid_data).y()
-                if self.range_data is not None:
-                    self.range_data = SwapGridData(self.range_data).y()
-            elif shuffle_num == 2:
-                self.grid_data = SwapGridData(self.grid_data).z()
-                if self.range_data is not None:
-                    self.range_data = SwapGridData(self.range_data).z()
-            elif shuffle_num == 3:
-                self.grid_data = SwapGridData(self.grid_data).reverse()
-                if self.range_data is not None:
-                    self.range_data = SwapGridData(self.range_data).reverse()
+        shuffle_methods = random.sample(range(3), random.randint(0, 2))
+        if 0 in shuffle_methods:
+            self.grid_data = SwapGridData(self.grid_data).x()
+            if self.range_data is not None:
+                self.range_data = SwapGridData(self.range_data).x()
+        if 1 in shuffle_methods:
+            self.grid_data = SwapGridData(self.grid_data).y()
+            if self.range_data is not None:
+                self.range_data = SwapGridData(self.range_data).y()
+        if 2 in shuffle_methods:
+            self.grid_data = SwapGridData(self.grid_data).y()
+            if self.range_data is not None:
+                self.range_data = SwapGridData(self.range_data).y()
+        self.grid_data.reverse()
+        if self.range_data is not None:
+            self.range_data.reverse()
             
-        #50% chance to shuffle more than one direction
-        if random.uniform(0, 1) > 0.5 and not all(i in no_shuffle for i in range(4)):
-            self.shuffle(no_shuffle=no_shuffle)
             
             
     def update_score(self):
@@ -436,16 +1151,15 @@ class Connect3D(object):
         This will find any matches from one point, so it's simple to then iterate 
         through every point. A hash of each line is stored to avoid duplicates.
         """
-        
         try:
             self.grid_data_last_updated
         except AttributeError:
             self.grid_data_last_updated = None
-        
-        if self.grid_data_last_updated != hash(tuple(self.grid_data)):
-        
+
+        if self.grid_data_last_updated != self.grid_data or True:
+            
             #Store hash of grid_data in it's current state to avoid unnecessarily running the code again when there's been no changes
-            self.grid_data_last_updated = hash(tuple(self.grid_data))
+            self.grid_data_last_updated = self.grid_data
             
             
             self.current_points = defaultdict(int)
@@ -456,7 +1170,7 @@ class Connect3D(object):
                 
                 current_player = self.grid_data[starting_point]
                 
-                if current_player:
+                if current_player != '':
                 
                     for i in DirectionCalculation().opposite_direction:
                         
@@ -486,12 +1200,12 @@ class Connect3D(object):
                                     break
                         
                         #Add a point if enough matches
-                        if num_matches == self.grid_size:
-                            
+                        if num_matches == self.segments:
                             list_match = hash(tuple(sorted(list_match)))
                             if list_match not in all_matches:
                                 all_matches.add(list_match)
                                 self.current_points[current_player] += 1
+
 
     def show_score(self, digits=False, marker='/'):
         """Print the current points.
@@ -520,7 +1234,7 @@ class Connect3D(object):
         
     def reset(self):
         """Empty the grid without creating a new Connect3D object."""
-        self.grid_data = ['' for i in range(pow(self.grid_size, 3))]
+        self.grid_data = ['' for i in range(pow(self.segments, 3))]
 
 
 class DirectionCalculation(object):
@@ -572,7 +1286,7 @@ class PointConversion(object):
     """Used to convert the cell ID to 3D coordinates or vice versa.
     Mainly used for inputting the coordinates to make a move.
     
-    The cell ID is from 0 to grid_size^3, and coordinates are from 1 to grid_size.
+    The cell ID is from 0 to segments^3, and coordinates are from 1 to segments.
     This means an ID of 0 is actually (1,1,1), and 3 would be (4,1,1).
     
                - X -
@@ -588,7 +1302,7 @@ class PointConversion(object):
         |/___/___|
     
     Parameters:
-        grid_size:
+        segments:
             Size of the grid.
             Type: int
         
@@ -600,38 +1314,38 @@ class PointConversion(object):
         to_3d
         to_int
     """
-    def __init__(self, grid_size, i):
-        self.grid_size = grid_size
+    def __init__(self, segments, i):
+        self.segments = segments
         self.i = i
         
     def to_3d(self):
         """Convert cell ID to a 3D coordinate.
         
-        >>> grid_size = 4
+        >>> segments = 4
         >>> cell_id = 16
         
-        >>> PointConversion(grid_size, cell_id).to_3d()
+        >>> PointConversion(segments, cell_id).to_3d()
         (1, 1, 2)
         """
         cell_id = int(self.i)
-        z = cell_id / pow(self.grid_size, 2) 
-        cell_id %= pow(self.grid_size, 2)
-        y = cell_id / self.grid_size
-        x = cell_id % self.grid_size
+        z = cell_id / pow(self.segments, 2) 
+        cell_id %= pow(self.segments, 2)
+        y = cell_id / self.segments
+        x = cell_id % self.segments
         return tuple(cell_id+1 for cell_id in (x, y, z))
     
     def to_int(self):
         """Convert 3D coordinates to the cell ID.
         
-        >>> grid_size = 4
+        >>> segments = 4
         >>> coordinates = (4,2,3)
         
-        >>> PointConversion(grid_size, coordinates).to_int()
+        >>> PointConversion(segments, coordinates).to_int()
         39
         """
         x, y, z = [int(i) for i in self.i]
         if all(i > 0 for i in (x, y, z)):
-            return (x-1)*pow(self.grid_size, 0) + (y-1)*pow(self.grid_size, 1) + (z-1)*pow(self.grid_size, 2)
+            return (x-1)*pow(self.segments, 0) + (y-1)*pow(self.segments, 1) + (z-1)*pow(self.segments, 2)
         return None
 
 
@@ -644,7 +1358,7 @@ class SwapGridData(object):
     """
     def __init__(self, grid_data):
         self.grid_data = list(grid_data)
-        self.grid_size = calculate_grid_size(self.grid_data)
+        self.segments = calculate_segments(self.grid_data)
     
     def x(self):
         """Flip on the X axis.
@@ -663,7 +1377,7 @@ class SwapGridData(object):
         | / 7 / 6|/
         |/___/___|
         """
-        return join_list(x[::-1] for x in split_list(self.grid_data, self.grid_size))
+        return join_list(x[::-1] for x in split_list(self.grid_data, self.segments))
         
     def y(self):
         """Flip on the Y axis.
@@ -682,8 +1396,8 @@ class SwapGridData(object):
         | / 4 / 5|/
         |/___/___|
         """
-        group_split = split_list(self.grid_data, pow(self.grid_size, 2))
-        return join_list(join_list(split_list(x, self.grid_size)[::-1]) for x in group_split)
+        group_split = split_list(self.grid_data, pow(self.segments, 2))
+        return join_list(join_list(split_list(x, self.segments)[::-1]) for x in group_split)
         
     def z(self):
         """Flip on the Z axis.
@@ -702,7 +1416,7 @@ class SwapGridData(object):
         | / 2 / 3|/
         |/___/___|
         """
-        return join_list(split_list(self.grid_data, pow(self.grid_size, 2))[::-1])
+        return join_list(split_list(self.grid_data, pow(self.segments, 2))[::-1])
     
     def reverse(self):
         """Reverse the grid.
@@ -724,7 +1438,7 @@ class SwapGridData(object):
         return self.grid_data[::-1]
 
 
-def calculate_grid_size(grid_data):
+def calculate_segments(grid_data):
     """Cube root the length of grid_data to find the grid size."""
     return int(round(pow(len(grid_data), 1.0/3.0), 0))
 
@@ -770,20 +1484,22 @@ class SimpleC3DAI(object):
         """
         self.C3DObject = C3DObject
         self.player_num = player_num
-        self.player = Connect3D.player_symbols[1]
-        self.enemy = Connect3D.player_symbols[int(not self.player_num)]
-        self.gd_len = len(self.C3DObject.grid_data)
+        self.player = player_num #Connect3D.player_symbols[1]
+        self.enemy = int(not self.player_num)# Connect3D.player_symbols[int(not self.player_num)]
+        self.gd_len = self.C3DObject.segments_cubed
         self.difficulty = difficulty
+        self.grid_data = [i if i in (self.player, self.enemy) else '' for i in C3DObject.grid_data]
     
     def max_cell_points(self):
         """Get maximum number of points that can be gained from each empty cell,
         that is not blocked by an enemy value.
         """
         max_points = defaultdict(int)
-        filled_grid_data = [i if i else self.player for i in self.C3DObject.grid_data]
+        filled_grid_data = [i if i != '' else self.player for i in self.grid_data]
         for cell_id in range(self.gd_len):
-            if cell_id == self.player:
+            if cell_id == self.player and self.grid_data[cell_id] == '':
                 max_points[cell_id] += self.check_grid(filled_grid_data, cell_id, self.player)
+
         return get_max_dict_keys(max_points)
     
     def check_for_n_minus_one(self, grid_data=None):
@@ -795,11 +1511,11 @@ class SimpleC3DAI(object):
                 leave as None to use the Connect3D one.
         """
         if grid_data is None:
-            grid_data = list(self.C3DObject.grid_data)
+            grid_data = list(self.grid_data)
         
         matches = defaultdict(list)
         for cell_id in range(len(grid_data)):
-            if not grid_data[cell_id]:
+            if grid_data[cell_id] == '':
                 for current_player in (self.player, self.enemy):
                     if self.check_grid(grid_data, cell_id, current_player):
                         matches[current_player].append(cell_id)
@@ -817,9 +1533,9 @@ class SimpleC3DAI(object):
             return (match, 0)
             
         #For every grid cell, substitute a player into it, then do the check again
-        grid_data = list(self.C3DObject.grid_data)
+        grid_data = list(self.grid_data)
         for i in range(self.gd_len):
-            if not self.C3DObject.grid_data[i]:
+            if self.C3DObject.grid_data[i] == '':
                 old_value = grid_data[i]
                 for current_player in (self.player, self.enemy):
                     grid_data[i] = current_player
@@ -865,14 +1581,14 @@ class SimpleC3DAI(object):
                         num_matches += 1
                     else:
                         break
-            
+
             #Add a point if enough matches
-            if num_matches == self.C3DObject.grid_size:
-                 max_points += 1
+            if num_matches == self.C3DObject.segments:
+                max_points += 1
                      
         return max_points
     
-    def calculate_next_move(self, debug=False):
+    def calculate_next_move(self):
         """Groups together the AI methods in order of importance.
         Will throw an error if grid_data is full, since the game should have ended by then anyway.
         
@@ -889,10 +1605,11 @@ class SimpleC3DAI(object):
         
         chance_of_changing_tactic, chance_of_not_noticing, chance_of_not_noticing_divide = get_bot_difficulty(self.difficulty)
         
-        grid_data_joined_len = len(''.join(self.C3DObject.grid_data))
+        grid_data_joined_len = len(''.join(map(str, self.C3DObject.grid_data)))
         
         next_moves = []
-        if grid_data_joined_len > (self.C3DObject.grid_size-2) * 2:
+        output_text = []
+        if grid_data_joined_len > (self.C3DObject.segments - 2) * 2:
             
             point_based_move, far_away = SimpleC3DAI(self.C3DObject, self.player_num).look_ahead()
             
@@ -900,15 +1617,14 @@ class SimpleC3DAI(object):
             if not far_away:
                 chance_of_not_noticing /= chance_of_not_noticing_divide
                 chance_of_not_noticing = pow(chance_of_not_noticing, pow(grid_data_joined_len / float(len(self.C3DObject.grid_data)), 0.4))
-                
+            
             ai_noticed = random.uniform(0, 100) > chance_of_not_noticing
             ai_new_tactic = random.uniform(0, 100) < chance_of_changing_tactic
             
             #Set which order to do things in
             order_of_importance = int('-'[:int(far_away)] + '1')
             if ai_new_tactic:
-                if debug:
-                    print 'AI changed tacic.'
+                output_text.append('AI changed tacic.')
                 order_of_importance = random.choice((-1, 1))
             
             move1_player = [self.enemy, self.player][::order_of_importance]
@@ -928,27 +1644,317 @@ class SimpleC3DAI(object):
             
             #Make a random move determined by number of possible points
             else:
-                if not ai_noticed and debug:
-                    print "AI didn't notice something."
+                if not ai_noticed:
+                    output_text.append("AI didn't notice something.")
                 next_moves = self.max_cell_points()
                 state = 'Random placement'
+
             
             #Make a totally random move
             if not next_moves:
-                next_moves = [i for i in range(self.gd_len) if not self.C3DObject.grid_data[i]]
+                next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
                 if state is None:
                     state = 'Struggling'
         
         else:
-            next_moves = [i for i in range(self.gd_len) if not self.C3DObject.grid_data[i]]
+            next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
             state = 'Starting'
-        
-        if debug:
-            print 'AI Objective: ' + state + '.'
-            
-        return random.choice(next_moves)
 
-def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default):
+        output_text.append('AI Objective: {}.'.format(state))
+        n = random.choice(next_moves)
+        if next_moves:
+            if self.grid_data[n] != '':
+                print state, next_moves, self.grid_data[n], 'fuck sake'
+
+        output_text.append('Possible Moves: {}'.format(next_moves))
+        return random.choice(next_moves), output_text
+
+class MouseToBlockID(object):
+    """Converts mouse coordinates into the games block ID.
+
+    The first part is to calculate which level has been clicked, which
+    then allows the code to treat the coordinates as level 0. From this
+    point, it finds the matching chunks from the new coordinates which
+    results in two possible blocks, then it calculates how they are
+    conected (highest one is to the left if even+odd, otherwise it's to
+    the right), and from that, it's possible to figure out which block
+    the cursor is over.
+    
+    A chunk is a cell of a 2D grid overlaid over the isometric grid.
+    Each block is split into 4 chunks, and each chunk overlaps two
+    blocks.
+    """
+    
+    def __init__(self, x, y, grid_main):
+        self.x = x
+        self.y = y
+        self.y_original = y
+        self.grid_main = grid_main
+        self._to_chunk()
+
+    def _to_chunk(self):
+        """Calculate which chunk the coordinate is on."""
+        y_offset = self.grid_main.size_y * 2 + self.grid_main.padding
+        self.y_coordinate = int((self.grid_main.centre - self.y) / y_offset)
+        self.y += y_offset * self.y_coordinate
+        
+        chunk_size_x = self.grid_main.size_x / self.grid_main.segments
+        chunk_size_y = self.grid_main.size_y / self.grid_main.segments
+        self.height = int((self.grid_main.centre - self.y) / chunk_size_y)
+        self.width = int((self.x + self.grid_main.size_x + chunk_size_x) / chunk_size_x) -1
+        
+
+    def find_x_from_chunk(self):
+        """Find block IDs that are on the x segment"""
+        past_middle = self.width >= self.grid_main.segments
+        if not past_middle:
+            starting_point = self.grid_main.segments - self.width
+            values = [(starting_point - 1) * self.grid_main.segments]
+
+            width_addition = 0
+            for i in range(starting_point, self.grid_main.segments):
+                n_multiple = self.grid_main.segments * i
+                values.append(n_multiple + width_addition)
+                if 0 < i < self.grid_main.segments:
+                    values.append(n_multiple + width_addition + 1)
+                else:
+                    break
+                width_addition += 1
+                
+        else:
+            count = 0
+            values = []
+            while True:
+                n_multiple = self.grid_main.segments * count
+                width_addition = self.width - self.grid_main.segments + count
+                if width_addition < self.grid_main.segments:
+                    values.append(n_multiple + width_addition)
+                    if width_addition < self.grid_main.segments - 1:
+                        values.append(n_multiple + width_addition + 1)
+                else:
+                    break
+                count += 1
+            
+        return values
+
+    def find_y_from_chunk(self):
+        """Find block IDs that are on the y segment"""
+        
+        height = self.height
+        past_middle = height >= self.grid_main.segments
+        if past_middle:
+            height = 2 * self.grid_main.segments - 1 - height
+            
+        values = []
+        count = 0
+        while True:
+            n_multiple = count * self.grid_main.segments
+            height_addition = height - count
+            if height_addition >= 0:
+                values.append(n_multiple + height_addition)
+                if height_addition >= 1:
+                    values.append(n_multiple + height_addition - 1)
+            else:
+                break
+            count += 1
+            
+        if past_middle:
+            values = [pow(self.grid_main.segments, 2) - i - 1 for i in values]
+            
+        return values
+
+    def find_possible_blocks(self):
+        """Combine the block IDs to find the 1 or 2 matching ones."""
+        
+        x_blocks = self.find_x_from_chunk()
+        y_blocks = self.find_y_from_chunk()
+        if self.y_coordinate >= self.grid_main.segments:
+            return []
+        return [i for i in x_blocks if i in y_blocks]
+
+    def find_block_coordinates(self):
+        """Calculate the coordinates of the block IDs, or create a fake
+        block if one is off the edge.
+        Returns a list sorted by height.
+
+        If only one value is given for which blocks are in the chunk, that
+        means the player is on the edge of the board. By creating a fake
+        block off the side of the board, it allows the coorect maths to be
+        done without any modification.
+        """
+        matching_blocks = self.find_possible_blocks()
+        if not matching_blocks:
+            return None
+        
+        matching_coordinates = {i: self.grid_main.relative_coordinates[i]
+                                for i in matching_blocks}
+
+        #Create new value to handle 'off edge' cases
+        if len(matching_coordinates.keys()) == 1:
+            
+            single_coordinate = matching_coordinates[matching_blocks[0]]
+            
+            new_location = (0, -self.grid_main.centre)
+
+            #Workaround to handle the cases in the upper half
+            if self.height < self.grid_main.segments:
+                
+                top_row_right = range(1, self.grid_main.segments)
+                top_row_left = [i * self.grid_main.segments
+                                for i in range(1, self.grid_main.segments)]
+                if self.width >= self.grid_main.segments:
+                    top_row_right.append(0)
+                else:
+                    top_row_left.append(0)
+
+                
+                if matching_blocks[0] in top_row_left:
+                    new_location = (single_coordinate[0] - self.grid_main.x_offset,
+                                    single_coordinate[1] + self.grid_main.y_offset)
+
+                elif matching_blocks[0] in top_row_right:
+                    new_location = (single_coordinate[0] + self.grid_main.x_offset,
+                                    single_coordinate[1] + self.grid_main.y_offset)
+            
+            matching_coordinates[-1] = new_location
+            
+        return sorted(matching_coordinates.items(), key=lambda (k, v): v[1])
+
+    
+    def calculate(self, debug=0):
+        """Calculate which block ID the coordinates are on.
+        This calculates the coordinates of the line between the two
+        blocks, then depending on if a calculation results in a positive
+        or negative number, it's possible to detect which block it falls
+        on.
+
+        By returning the (x1, y1) and (x2, y2) values, they can be linked
+        with turtle to see it how it works under the hood.
+        """
+        all_blocks = self.find_block_coordinates()
+        if all_blocks is None:
+            return None
+        
+        highest_block = all_blocks[1][1]
+        line_direction = self.width % 2 == self.height % 2
+        if self.grid_main.segments % 2:
+            line_direction = not line_direction
+        #print self.width, self.height
+        
+        x1, y1 = (highest_block[0],
+                  highest_block[1] - self.grid_main.y_offset * 2)
+        negative = int('-1'[not line_direction:])
+        x2, y2 = (x1 + self.grid_main.x_offset * negative,
+                  y1 + self.grid_main.y_offset)
+
+        sign = (x2 - x1) * (self.y - y1) - (y2 - y1) * (self.x - x1)
+        sign *= negative
+
+        #Return particular things when debugging
+        if debug == 1:
+            return (x1, y1), (x2, y2)
+        if debug == 2:
+            return sign
+
+        selected_block = all_blocks[sign > 0][0]
+
+        #If extra block was added, it was -1, so it is invalid
+        if selected_block < 0:
+            return None
+
+        
+        return selected_block + self.y_coordinate * pow(self.grid_main.segments, 2)
+
+
+class CoordinateConvert(object):
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.centre = (self.width / 2, self.height / 2)
+
+    def to_pygame(self, x, y):
+        x = x - self.centre[0]
+        y = self.centre[1] - y
+        return (x, y)
+
+    def to_canvas(self, x, y):
+        x = x + self.centre[0]
+        y = self.centre[1] - y
+        return (x, y)
+
+class GridDrawData(object):
+    """Hold the relevant data for the grid, to allow it to be shown."""
+    
+    def __init__(self, length, segments, angle, padding=5):
+        self.length = length
+        self.segments = segments
+        self.angle = angle
+        self.padding = padding
+        self._calculate()
+
+    def _calculate(self):
+        """Perform the main calculations on the values in __init__.
+        This allows updating any of the values, such as the isometric
+        angle, without creating a new class."""
+        
+        self.size_x = self.length * math.cos(math.radians(self.angle))
+        self.size_y = self.length * math.sin(math.radians(self.angle))
+        self.x_offset = self.size_x / self.segments
+        self.y_offset = self.size_y / self.segments
+        self.chunk_height = self.size_y * 2 + self.padding
+        
+        self.centre = (self.chunk_height / 2) * self.segments - self.padding / 2
+        self.size_x_sm = self.size_x / self.segments
+        self.size_y_sm = self.size_y / self.segments
+
+        #self.segments_sq = pow(self.segments, 2)
+        #self.grid_data_len = pow(self.segments, 3)
+        #self.grid_data_range = range(self.grid_data_len)
+
+        
+        self.length_small = self.length / self.segments
+        
+        self.relative_coordinates = []
+        position = (0, self.centre)
+        for j in range(self.segments):
+            checkpoint = position
+            for i in range(self.segments):
+                self.relative_coordinates.append(position)
+                position = (position[0] + self.x_offset,
+                            position[1] - self.y_offset)
+            position = (checkpoint[0] - self.x_offset,
+                        checkpoint[1] - self.y_offset)
+
+
+
+        #Absolute coordinates for pygame
+        chunk_coordinates = [(0, - i * self.chunk_height) for i in range(self.segments)]
+
+        self.line_coordinates = [((self.size_x, self.centre - self.size_y),
+                                  (self.size_x, self.size_y - self.centre)),
+                                 ((-self.size_x, self.centre - self.size_y),
+                                  (-self.size_x, self.size_y - self.centre)),
+                                 ((0, self.centre - self.size_y * 2),
+                                  (0, -self.centre))]
+
+        for i in range(self.segments):
+
+            chunk_height = -i * self.chunk_height
+
+            self.line_coordinates += [((self.size_x, self.centre + chunk_height - self.size_y),
+                                       (0, self.centre + chunk_height - self.size_y * 2)),
+                                      ((-self.size_x, self.centre + chunk_height - self.size_y),
+                                       (0, self.centre + chunk_height - self.size_y * 2))]
+
+            for coordinate in self.relative_coordinates:
+                
+                start = (coordinate[0], chunk_height + coordinate[1])
+                self.line_coordinates += [(start,
+                                           (start[0] + self.size_x_sm, start[1] - self.size_y_sm)),
+                                          (start,
+                                           (start[0] - self.size_x_sm, start[1] - self.size_y_sm))]
+
+def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default, _debug=False):
     """Preset parameters for the bot difficulty levels.
     
     Parameters:
@@ -989,19 +1995,29 @@ def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default):
         level = str(level).lower()
     
     if level == difficulty_level[0]:
+        if _debug:
+            return 1
         return (75, 95, 1)
     elif level == difficulty_level[1]:
+        if _debug:
+            return 2
         return (50, 75, 2)
     elif level == difficulty_level[2]:
+        if _debug:
+            return 3
         return (40, 40, 4)
     elif level == difficulty_level[3]:
+        if _debug:
+            return 4
         return (20, 20, 4)
     elif level == difficulty_level[4]:
+        if _debug:
+            return 5
         return (0, 0, 1)
     
-    return bot_difficulty(_default)
+    return get_bot_difficulty(_default, _debug)
 
 
 if __name__ == '__main__':
     C3D = Connect3D()
-    C3D.play(False, False)
+    C3D.play()
