@@ -9,9 +9,7 @@ class Connect3DError(Exception):
     pass
 '''
 Things to do:
-Start game on options menu
-Esc toggles options menu
-
+marker for disable clicks
 '''
 
 BACKGROUND = (250, 250, 255)
@@ -1620,6 +1618,7 @@ class SimpleC3DAI(object):
             
         #For every grid cell, substitute a player into it, then do the check again
         grid_data = list(self.grid_data)
+        matches = defaultdict(list)
         for i in range(self.gd_len):
             if self.C3DObject.grid_data[i] == '':
                 old_value = grid_data[i]
@@ -1627,9 +1626,16 @@ class SimpleC3DAI(object):
                     grid_data[i] = current_player
                     match = self.check_for_n_minus_one(grid_data)
                     if match:
-                        return (match, 1)
+                        for k, v in match.iteritems():
+                            matches[k] += v
+                        
+                        #print dict(matches)
+                        
                 grid_data[i] = old_value
                 
+        if matches:
+            return (matches, 1)
+            
         return (defaultdict(list), 0)
     
     def check_grid(self, grid_data, cell_id, player):
@@ -1748,12 +1754,17 @@ class SimpleC3DAI(object):
 
         output_text.append('AI Objective: {}.'.format(state))
         n = random.choice(next_moves)
-        if next_moves:
-            if self.grid_data[n] != '':
-                print state, next_moves, self.grid_data[n], 'fuck sake'
-
+        
         output_text.append('Possible Moves: {}'.format(next_moves))
-        return random.choice(next_moves), output_text
+        
+        #Find if there are 2 occurances at once, stops people tricking the AI
+        occurances = defaultdict(int)
+        for i in next_moves:
+            occurances[i] += 1
+        highest_occurance = max(occurances.iteritems(), key=operator.itemgetter(1))[1]
+        next_move = random.choice([k for k, v in occurances.iteritems() if v == highest_occurance])
+        
+        return next_move, output_text
 
 class MouseToBlockID(object):
     """Converts mouse coordinates into the games block ID.
