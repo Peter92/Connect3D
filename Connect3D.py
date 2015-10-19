@@ -856,8 +856,6 @@ class SimpleC3DAI(object):
                             
                 grid_data[i] = old_value
                 
-        self.C3DObject.ai_message.append('Possible Moves: {}'.format(str(dict(matches))[1:-1]))
-        
         if matches:
             return (matches, 1)
             
@@ -892,7 +890,7 @@ class SimpleC3DAI(object):
                 
                 current_point = cell_id
                 
-                while current_point not in invalid_directions[j] and 0 < current_point < len(grid_data):
+                while current_point not in invalid_directions[j] and 0 <= current_point < len(grid_data):
                 
                     self.checks += 1
                     current_point += direction_movement * int('-'[:j] + '1')
@@ -931,10 +929,35 @@ class SimpleC3DAI(object):
         ai_message = self.C3DObject.ai_message.append
         self.checks = 0
         
-        if grid_data_joined_len > (self.C3DObject.segments - 2) * 2 - 1:
+        if grid_data_joined_len < (self.C3DObject.segments - 2) * 2:
+        
+            if random.uniform(0, 100) > chance_of_not_noticing:
+                next_moves = self.max_cell_points()
+            else:
+                next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
+                
+            state = 'Starting'
             
-            #point_based_move, far_away, iterations = SimpleC3DAI(self.C3DObject, self.player_num).look_ahead()
+        else:
+            
             point_based_move, far_away = self.look_ahead()
+            
+            possible_moves_type = ['Block', 'Gain']
+            if not self.player:
+                possible_moves_type = possible_moves_type[::-1]
+                
+            possible_moves_message = str({possible_moves_type[k]: v 
+                                            for k, v in point_based_move.iteritems()})[1:-1]
+            for k, v in point_based_move.iteritems():
+                if k == self.player:
+                    message = 'Gain Moves: {}'
+                elif k == self.enemy:
+                    message = 'Block Moves: {}'
+                self.C3DObject.ai_message.append(message.format(v))
+                    
+            
+            #self.C3DObject.ai_message.append('Possible Moves: {}'.format(possible_moves_message))
+            self.C3DObject.ai_message.append('Urgent: {}'.format(not far_away))
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
             if not far_away:
@@ -993,10 +1016,6 @@ class SimpleC3DAI(object):
                 if state is None:
                     state = 'Struggling'
         
-        else:
-            next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
-            state = 'Starting'
-            iterations = 0
 
         ai_message('AI Objective: {}.'.format(state))
         n = random.choice(next_moves)
@@ -1012,6 +1031,8 @@ class SimpleC3DAI(object):
         highest_occurance = max(occurances.iteritems(), key=operator.itemgetter(1))[1]
         next_move = random.choice([k for k, v in occurances.iteritems() if v == highest_occurance])
         
+        ai_message('Chosen Move: {}'.format(next_move))
+            
         ai_message('Calculations: {}'.format(self.checks + 1))
         
         return next_move
@@ -1665,7 +1686,7 @@ class RunPygame(object):
             #If mouse was clicked
             if not game_flags['disable_background_clicks']:
                 if game_flags['clicked'] == 1 and not block_data['taken'] or ai_turn is not None:
-                    store_data['waiting'] = (ai_turn or block_data['id'], self.player)
+                    store_data['waiting'] = (ai_turn if ai_turn is not None else block_data['id'], self.player)
                     store_data['waiting_start'] = time.time() + moving_wait
                     self._next_player()
                    
@@ -1762,7 +1783,10 @@ class RunPygame(object):
                 current_height = header_padding + self.padding[1]
                 
                 #Set page titles
-                if game_data['move_number'] + bool(store_data['waiting']) and game_data['overlay'] == 'options':
+                if game_data['overlay'] == 'instructions':
+                    title_message = 'Instructions/About'
+                    subtitle_message = ''
+                elif game_data['move_number'] + bool(store_data['waiting']) and game_data['overlay'] == 'options':
                     title_message = 'Options'
                     subtitle_message = ''
                 else:
@@ -1814,7 +1838,6 @@ class RunPygame(object):
                                                          options,
                                                          params,
                                                          screen_width_offset,
-                                                         header_padding,
                                                          current_height)
                         
                         selected_option, options_size = option_data
@@ -1846,12 +1869,11 @@ class RunPygame(object):
                     for i in range(len(options)):
                         params.append([not i and allow_shuffle or i and not allow_shuffle,
                                        not i and game_data['shuffle'][0] or i and not game_data['shuffle'][0],
-                                       store_data['shuffle_hover'] is not None and (not i or i and not store_data['shuffle_hover'])])
+                                       not i and store_data['shuffle_hover'] or i and not store_data['shuffle_hover'] and store_data['shuffle_hover'] is not None])
                     option_data = self._draw_options('Flip grid every 3 goes? ',
                                                      ['Yes', 'No'],
                                                      params,
                                                      screen_width_offset,
-                                                     header_padding,
                                                      current_height)
                                                      
                     selected_option, options_size = option_data
@@ -1981,13 +2003,30 @@ class RunPygame(object):
         return False
         
         
-    def _draw_options(self, message, options, params, screen_width_offset, header_padding, current_height):
-        '''
-        Params:
-        param[0] = selected
-        param[1] = active
-        param[2] = hovering
-        '''
+    def _draw_options(self, message, options, params, screen_width_offset, current_height):
+        """Draw a list of options and check for inputs.
+        
+        Parameters:
+            message (str): Text to display next to the options.
+            
+            options (list): Names of the options.
+            
+            params (list): Contains information on the options.
+                It needs to have the same amount of records as
+                options, with each of these being a list of 3 items.
+                These are used to colour the text in the correct
+                way.
+                
+                param[option][0] = new selection
+                param[option][1] = currently active
+                param[option][2] = mouse hoving over
+            
+            screen_width_offset (int): The X position to draw the
+                text.
+            
+            current_height (int/float): The Y position to draw the
+                text.
+        """
         message_text = self.font_md.render(message, 1, BLACK)
         message_size = message_text.get_rect()[2:]
         self.blit_list.append((message_text, (self.padding[0] + screen_width_offset, current_height)))
@@ -1997,8 +2036,8 @@ class RunPygame(object):
         option_square_list = []
     
         for i in range(len(options)):
-            width_offset = (sum(j[0] for j in option_size[:i])
-                            + self.padding[0] * (i + 2)
+            width_offset = (sum(j[0] + 2 for j in option_size[:i])
+                            + self.padding[0] * (i + 1) #gap between the start
                             + message_size[0] + screen_width_offset)
 
             option_square = (width_offset - self.option_padding,
@@ -2036,8 +2075,8 @@ class RunPygame(object):
         return (selected_square, message_size[1]) 
         
             
-    
     def _format_output(self, text):
+        """Format text to remove invalid characters."""
         left_bracket = ('[', '{')
         right_bracket = (']', '}')
         for i in left_bracket:
@@ -2047,6 +2086,8 @@ class RunPygame(object):
         return text
     
     def _draw_score(self, winner):
+        """Draw the title."""
+        
         #Format scores
         point_marker = '/'
         p0_points = self.C3DObject.current_points[0]
@@ -2079,6 +2120,7 @@ class RunPygame(object):
 
     
     def _draw_debug(self, block_data):
+        """Show the debug information."""
     
         mouse_data = pygame.mouse.get_pos()
         x, y = self.to_pygame(*mouse_data)
