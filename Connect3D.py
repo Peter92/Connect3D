@@ -7,10 +7,6 @@ import math
 from collections import defaultdict
 class Connect3DError(Exception):
     pass
-'''
-Things to do:
-marker for disable clicks
-'''
 
 BACKGROUND = (250, 250, 255)
 LIGHTBLUE = (86, 190, 255)
@@ -39,12 +35,6 @@ class Connect3D(object):
     from_string_separator = '/'
     bot_difficulty_default = 'medium'
     
-    pygame_overlay_marker = '/'
-    pygame_move_marker = '!'
-    player_colours = [GREEN, LIGHTBLUE]
-    empty_colour = YELLOW
-    move_colour = RED
-    
     def __init__(self, segments=default_segments):
         """Set up the grid and which player goes first.
         
@@ -65,7 +55,7 @@ class Connect3D(object):
         except TypeError:
             raise TypeError('segments must be an integer')
 
-
+        self.ai_message = []
 
         self.play_data = []
         self.segments_squared = pow(self.segments, 2)
@@ -335,7 +325,7 @@ class Connect3D(object):
                         break
             else:
                 #AI takes a move, will stop the code if it does something wrong
-                ai_go = SimpleC3DAI(self, self.current_player, players[self.current_player]).calculate_next_move()[0]
+                ai_go = SimpleC3DAI(self, self.current_player, players[self.current_player]).calculate_next_move()
                 if self.make_move(self.player_symbols[self.current_player], ai_go) is None:
                     raise Connect3DError('Something unknown went wrong with the AI')
                 else:
@@ -363,783 +353,7 @@ class Connect3D(object):
              screen_width=640, screen_height=860,
              default_length=200, default_angle=24):
 
-        self.current_player = int(not self.current_player)
-
-        pygame.init()
-        #try:
-        #    pygame.init()
-        #except NameError:            
-        #    return self._old_play(p1, p2, shuffle_x_goes, end_when_no_points_left)
-        
-        font_file = 'Miss Monkey.ttf'
-        try:
-            pygame.font.Font(font_file, 0)
-        except IOError:
-            raise IOError('unable to load font - download from http://www.dafont.com/miss-monkey.font')
-            font_file = None
-            
-            
-        convert = CoordinateConvert(screen_width, screen_height)
-        screen = pygame.display.set_mode((screen_width, screen_height))
-        pygame.display.set_caption('Connect 3D')
-        background_colour = BACKGROUND
-        font_padding = (10, 5)
-        padding = 2
-        display_offset = (50, 50)
-        debug = True
-
-        draw_data = GridDrawData(default_length,
-                                 self.segments,
-                                 default_angle,
-                                 padding = default_angle / self.segments)
-
-        #Flags for held down keys
-        flag_dict = {'angle': 0,
-                     'size': 0,
-                     'overlay': 'options',
-                     'player_options': [],
-                     'new_game': False,
-                     'exit': False,
-                     'continue': False,
-                     'shuffle': None}
-
-        #How long to wait before accepting a move
-        moving_wait = 0.5
-        
-        #For controlling how the angle and length of grid update
-        angle_increment = 0.25
-        angle_max = 30
-        length_exponential = 1.1
-        length_increment = 0.5
-        length_multiplier = 0.01
-        
-        time_current = time.time()
-        time_update = 0.01
-        
-        
-        #Initialise various things to update in the code
-        reset_colour = None
-        block_id = None
-        shuffle_count = 0
-        moving = False
-        moving_start = 0
-        moving_override = None
-        move_number = 0
-        reset_all = False
-        was_flipped = False
-        ai_turn = None
-        ai_message = []
-        players = (p1, p2)
-        shuffle_data = [allow_shuffle, 3]
-        quit_game = False
-        
-        
-        while True:
-
-            #Extra flag for the options menu
-            #since it's not in the event loop
-            clicked = False
-            
-            if quit_game:
-                return
-            
-            #Reset loop
-            screen.fill(background_colour)
-            recalculate = False
-            if reset_colour is not None:
-                if self.grid_data[reset_colour] == self.pygame_overlay_marker:
-                    self.grid_data[reset_colour] = ''
-            overlay_used = None
-
-            #Check if no spaces are left
-            if '' not in self.grid_data:
-                winning_player = self._get_winning_player()
-                if len(winning_player) == 1:
-                    print 'Player {} won!'.format(winning_player[0])
-                else:
-                    print 'The game was a draw!'
-                pygame.quit()
-                return
-        
-            #Delay each go
-            if moving:
-                if moving_start < time.time():
-                
-                    attempted_move = self.make_move(moving[1], moving[0])
-                    if attempted_move is not None:
-
-                        move_number += 1
-                        self.update_score()
-                        shuffle_count += 1
-                        if shuffle_count >= shuffle_data[1] and shuffle_data[0]:
-                            shuffle_count = 0
-                            self.shuffle()
-                            was_flipped = True
-                        else:
-                            was_flipped = False
-                    else:
-                        self.current_player = int(not self.current_player)
-                        print "Invalid move: {}".format(moving[0])
-                    moving = False
-                    
-                else:
-                    self.grid_data[moving[0]] = self.pygame_move_marker
-                    self.grid_data[moving[0]] = 9 - moving[1]
-            
-            
-            #Run the AI
-            if players[self.current_player] is not False:
-                if not moving and flag_dict['overlay'] is None:
-                    ai_turn, ai_message = SimpleC3DAI(self, self.current_player, difficulty=players[self.current_player]).calculate_next_move()
-            else:
-                ai_turn = None
-            
-            #Mouse information
-            x_raw, y_raw = pygame.mouse.get_pos()
-            x, y = convert.to_pygame(x_raw, y_raw)
-            block_id_object = MouseToBlockID(x, y, draw_data)
-            block_id = block_id_object.calculate()
-            is_taken = True
-            if block_id is not None and ai_turn is None:
-                is_taken = self.grid_data[block_id] != ''
-
-        
-            #Event loop
-            event_list = pygame.event.get()
-            
-            if ai_turn is not None and not moving:
-                event_list.append(0)
-            
-            for event in event_list:
-
-                #Fix for the AI
-                try:
-                    event_type = event.type
-                except AttributeError:
-                    event_type = 'mouse'
-
-                if event_type == pygame.QUIT:
-                    return
-
-                #Get single key presses
-                if event_type == pygame.KEYDOWN:
-                    recalculate = True
-
-                    if event.key == pygame.K_ESCAPE:
-                        if not flag_dict['overlay']:
-                            flag_dict['overlay'] = 'options'
-                        else:
-                            flag_dict['overlay'] = None
-                    
-                    if event.key == pygame.K_RIGHTBRACKET:
-                        self.segments += 1
-                        reset_all = True
-                        
-                    if event.key == pygame.K_LEFTBRACKET:
-                        self.segments -= 1
-                        self.segments = max(1, self.segments)
-                        reset_all = True
-
-                    if event.key == pygame.K_UP:
-                        flag_dict['angle'] = 1
-
-                    if event.key == pygame.K_DOWN:
-                        flag_dict['angle'] = -1
-
-                    if event.key == pygame.K_RIGHT:
-                        flag_dict['size'] = 1
-
-                    if event.key == pygame.K_LEFT:
-                        flag_dict['size'] = -1
-
-                        
-                #Get mouse clicks
-                if event_type == pygame.MOUSEBUTTONDOWN:
-                    clicked = True
-                    
-                if (event_type == 'mouse' or clicked) and not moving and flag_dict['overlay'] is None:
-                    if ai_turn is None and event_type != 'mouse':
-                        clicked = True
-                        if not is_taken and not players[self.current_player]:
-                            moving = (block_id, self.current_player)
-                            moving_start = time.time() + moving_wait
-                            self.current_player = int(not self.current_player)
-
-                    elif event_type == 'mouse':
-                        moving = (ai_turn, self.current_player)
-                        moving_start = time.time() + moving_wait
-                        self.current_player = int(not self.current_player)
-
-                        
-            #Get held down key presses
-            key = pygame.key.get_pressed()
-            if flag_dict['angle']:
-                if not (key[pygame.K_UP] or key[pygame.K_DOWN]):
-                    flag_dict['angle'] = 0
-                    
-                elif time_current < time.time() - time_update:
-                    draw_data.angle += angle_increment * flag_dict['angle']
-                    recalculate = True
-            
-            if flag_dict['size']:
-                if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
-                    flag_dict['size'] = 0
-                    
-                elif time_current < time.time() - time_update:
-                    length_exp = (max(length_increment,
-                                     (pow(draw_data.length, length_exponential)
-                                      - 1 / length_increment))
-                                  * length_multiplier)
-                    draw_data.length += length_exp * flag_dict['size']
-                    recalculate = True
-
-            if flag_dict['overlay']:
-                #if not key[pygame.K_F1]:
-                #    flag_dict['overlay'] = None
-                overlay_used = flag_dict['overlay']
-
-                
-            #Highlight square
-            if not is_taken and not moving and not overlay_used:
-                self.grid_data[block_id] = self.pygame_overlay_marker
-                reset_colour = block_id
-            
-            #Reinitialise the grid
-            if reset_all:
-                reset_all = False
-                shuffle_data[0] = allow_shuffle
-                players = (p1, p2)
-                self = Connect3D(self.segments)
-                moving = False
-                move_number = 0
-                reset_colour = None
-                recalculate = True
-                
-
-            #Recalculate the grid object
-            if recalculate:
-                draw_data.segments = self.segments
-                draw_data.length = max((pow(1 / length_increment, 2)
-                                        * draw_data.segments),
-                                       draw_data.length,
-                                       2)
-                draw_data.length = float(draw_data.length)
-                draw_data.angle = max(angle_increment, min(89,
-                                                           draw_data.angle,
-                                                           angle_max))
-                draw_data.angle = float(draw_data.angle)
-                draw_data._calculate()
-                time_current = time.time()
-
-
-            #Draw coloured squares
-            moving_block = None
-            for i in self.range_data:
-                if self.grid_data[i] != '':
-                    chunk = i / self.segments_squared
-                    coordinate = list(draw_data.relative_coordinates[i % self.segments_squared])
-                    coordinate[1] -= chunk * draw_data.chunk_height
-                    
-                    square = [coordinate,
-                              (coordinate[0] + draw_data.size_x_sm,
-                               coordinate[1] - draw_data.size_y_sm),
-                              (coordinate[0],
-                               coordinate[1] - draw_data.size_y_sm * 2),
-                              (coordinate[0] - draw_data.size_x_sm,
-                               coordinate[1] - draw_data.size_y_sm),
-                              coordinate]
-
-                    if self.grid_data[i] == self.pygame_overlay_marker:
-                        block_colour = self.empty_colour
-                    elif self.grid_data[i] == self.pygame_move_marker:
-                        block_colour = self.move_colour
-                    else:
-                        j = self.grid_data[i]
-                        mix_colour = None
-                        if isinstance(j, int) and j > 1:
-                            j = 9 - j
-                            moving_block = square
-                            mix_colour = (255, 128, 128)
-                        block_colour = self.player_colours[j]
-                        if mix_colour is not None:
-                            block_colour = [(block_colour[i] + mix_colour[i]) / 2 for i in range(3)]
-                        
-                    pygame.draw.polygon(screen,
-                                        block_colour,
-                                        [convert.to_canvas(*corner)
-                                         for corner in square],
-                                        0)
-                    
-                    
-            #Draw grid
-            for line in draw_data.line_coordinates:
-                pygame.draw.aaline(screen,
-                                   BLACK,
-                                   convert.to_canvas(*line[0]),
-                                   convert.to_canvas(*line[1]),
-                                   1)
-            
-            #Draw outline around latest clicked block
-            '''
-            if moving_block is not None:
-                line_coordinates = [[i, (i+1)%4] for i in range(4)]
-                for line in line_coordinates:
-                    pygame.draw.aaline(screen,
-                                       BLUE,
-                                       convert.to_canvas(*moving_block[line[0]]),
-                                       convert.to_canvas(*moving_block[line[1]]))
-                                       '''
-
-            #Draw debug info
-            if debug and x is not None and y is not None:
-                debug_coordinates = block_id_object.calculate(debug=1)
-                if debug_coordinates is not None:
-                    if all(i is not None for i in debug_coordinates):
-                        pygame.draw.aaline(screen,
-                                    RED,
-                                    (x_raw, y_raw),
-                                    convert.to_canvas(*debug_coordinates[1]),
-                                    1)
-                        pygame.draw.aaline(screen,
-                                    RED,
-                                    convert.to_canvas(*debug_coordinates[0]),
-                                    convert.to_canvas(*debug_coordinates[1]),
-                                    2)
-
-                font = pygame.font.Font(font_file, 16)
-                
-                #Format the text output
-                msg_segments = self.segments
-                msg_angle = draw_data.angle
-                msg_len = draw_data.length
-                x_coordinate = block_id_object.width
-                z_coordinate = block_id_object.height
-                y_coordinate = block_id_object.y_coordinate
-                msg_chunk = (x_coordinate, z_coordinate, y_coordinate)
-                msg_x_seg = tuple(block_id_object.find_x_from_chunk())
-                msg_y_seg = tuple(block_id_object.find_y_from_chunk())
-                msg_possible = tuple(i + y_coordinate * self.segments_squared
-                                for i in block_id_object.find_possible_blocks())
-                msg_weight = block_id_object.calculate(debug=2)
-                
-                messages = ['DEBUG INFO',
-                            'Segments: {}'.format(msg_segments),
-                            'Angle: {}'.format(msg_angle),
-                            'Side length: {}'.format(msg_len),
-                            'Coordinates: {}'.format((x_raw, y_raw)),
-                            'Chunk: {}'.format(msg_chunk),
-                            'X Slice: {}'.format(msg_x_seg),
-                            'Y Slice: {}'.format(msg_y_seg),
-                            'Possible blocks: {}'.format(msg_possible),
-                            'Block weight: {}'.format(msg_weight),
-                            'Block ID: {}'.format(block_id)]
-                font_render = [font.render(i, 1, BLACK)
-                               for i in messages]
-                font_size = [i.get_rect()[2:] for i in font_render]
-                for i in range(len(messages)):
-                    message_height = screen_height - sum(j[1] for j in font_size[i:])
-                    screen.blit(font_render[i], (0, message_height))
-
-                #Format the AI text output
-                ai_message = [i.replace('[', '(').replace(']', ')')[:50] for i in ai_message]
-                font_render = [font.render(i, 1, BLACK)
-                               for i in ai_message]
-                font_size = [i.get_rect()[2:] for i in font_render]
-
-                for i in range(len(ai_message)):
-                    message_height = screen_height - sum(j[1] for j in font_size[i:])
-                    screen.blit(font_render[i], (screen_width - font_size[i][0], message_height))
-
-
-            #Format scores
-            point_marker = '/'
-            font = pygame.font.Font(font_file, 24)
-            p1_font_top = font.render('Player 0',
-                                      1,
-                                      (0, 0, 0),
-                                      self.player_colours[0])
-            p1_font_size = p1_font_top.get_rect()[2:]
-            p2_font_top = font.render('Player 1',
-                                      1,
-                                      (0, 0, 0),
-                                      self.player_colours[1])
-            font = pygame.font.Font(font_file, 30)
-            p1_font_bottom = font.render(point_marker * self.current_points[0],
-                                         1,
-                                         (0, 0, 0))
-            p2_font_bottom = font.render(point_marker * self.current_points[1],
-                                         1,
-                                         (0, 0, 0))
-            p2_font_size = (p2_font_top.get_rect()[2:],
-                            p2_font_bottom.get_rect()[2:])
-
-            screen.blit(p1_font_top,
-                        (font_padding[0], font_padding[1]))
-            screen.blit(p2_font_top,
-                        (screen_width - p2_font_size[0][0] - font_padding[0],
-                         font_padding[1]))
-            
-            screen.blit(p1_font_bottom,
-                        (font_padding[0], font_padding[1] + p1_font_size[1]))
-            screen.blit(p2_font_bottom,
-                        (screen_width - p2_font_size[1][0] - font_padding[0],
-                         font_padding[1] + p1_font_size[1]))
-
-            font = pygame.font.Font(font_file, 36)
-            player_go_message = "Player {}'s turn!".format(self.current_player)
-            player_go_font = font.render(player_go_message,
-                                         1,
-                                         (0, 0, 0))
-            player_go_size = player_go_font.get_rect()[2:]
-
-            screen.blit(player_go_font,
-                        ((screen_width - player_go_size[0]) / 2,
-                         font_padding[1] * 4))
-
-            if was_flipped:
-                font = pygame.font.Font(font_file, 18)
-                flipped_message = 'Grid was flipped!'
-                flipped_font = font.render(flipped_message,
-                                         1,
-                                         (0, 0, 0))
-                flipped_size = flipped_font.get_rect()[2:]
-                screen.blit(flipped_font,
-                            ((screen_width - flipped_size[0]) / 2,
-                             font_padding[1] * 5 + player_go_size[1]))
-
-            
-            #Draw overlay
-            if flag_dict['overlay']:
-                overlay_width_padding = 50
-                overlay_height_padding = 70
-                overlay_width = screen_width - overlay_width_padding * 2
-                overlay_height = 500
-                header_padding = font_padding[1] * 5
-                
-                #Set font sizes
-                font_lg = pygame.font.Font(font_file, 36)
-                font_md = pygame.font.Font(font_file, 50)
-                font_sm = pygame.font.Font(font_file, 24)
-                font_lg_size = font_lg.render('', 1, BLACK).get_rect()[3]
-                font_lg_multiplier = 3
-                    
-                    
-                
-
-                #Draw background
-                pygame.draw.rect(screen, WHITE, (overlay_width_padding, overlay_height_padding,
-                                                 overlay_width, overlay_height))
-                pygame.draw.rect(screen, BLACK, (overlay_width_padding, overlay_height_padding,
-                                                 overlay_width, overlay_height), 1)
-
-                current_text_height = overlay_height_padding + font_padding[1]
-
-                #Set page titles
-                if move_number + bool(moving) and overlay_used == 'options':
-                    title_message = 'Options'
-                    subtitle_message = ''
-                else:
-                    title_message = 'Connect 3D'
-                    subtitle_message = 'By Peter Hunt'
-                 
-                #Draw title
-                title_text = font_lg.render(title_message, 1, BLACK)
-                title_size = title_text.get_rect()[2:]
-                screen.blit(title_text, (font_padding[0] + overlay_width_padding,
-                                     current_text_height))
-                current_text_height += font_padding[1] + title_size[1]
-                
-                subtitle_text = font_sm.render(subtitle_message, 1, BLACK)
-                subtitle_size = subtitle_text.get_rect()[2:]
-                screen.blit(subtitle_text, (font_padding[0] + overlay_width_padding,
-                                     current_text_height))
-                current_text_height += subtitle_size[1]
-                
-                if subtitle_message:
-                    current_text_height += header_padding
-                
-
-                if overlay_used == 'options':
-                                
-                    #Player options
-                    p1_text = font_sm.render('Player 0: ', 1, BLACK)
-                    p1_size = p1_text.get_rect()[2:]
-                    screen.blit(p1_text, (font_padding[0] + overlay_width_padding,
-                                          current_text_height))
-                    p1_text_height = current_text_height
-                    
-                    current_text_height += font_padding[1] + p1_size[1]
-                    p2_text = font_sm.render('Player 1: ', 1, BLACK)
-                    p2_size = p2_text.get_rect()[2:]
-                    screen.blit(p2_text, (font_padding[0] + overlay_width_padding,
-                                          current_text_height))
-
-                    #Player options - AI selection
-                    options = ['Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme']
-                    options_text = [font_sm.render(i, 1, BLACK) for i in options]
-                    options_size = [i.get_rect()[2:] for i in options_text]
-                    height_list = (p1_text_height, current_text_height)
-                    players_unsaved = (p1, p2)
-                    option_square_list = defaultdict(list)
-                    for j in range(2):
-
-                        #Colour the squares
-                        if players_unsaved[j] is False:
-                            unsaved_player = -1
-                        else:
-                            unsaved_player = get_bot_difficulty(players_unsaved[j],
-                                                                 _debug=True)
-                        if players[j] is False:
-                            original_player = -1
-                        else:
-                            original_player = get_bot_difficulty(players[j], _debug=True)
-
-                        #Draw each square
-                        for i in range(len(options)):
-                            
-                            width_offset = (sum(j[0] for j in options_size[:i])
-                                            + font_padding[0] * (i + 2)
-                                            + (p2_size if j else p1_size)[0]
-                                            + overlay_width_padding)
-
-                            #Set colours
-                            option_colours = list(SELECTION['Default'])
-                            
-                            if i == unsaved_player or unsaved_player < 0 and not i:
-                                option_colour = list(SELECTION['Waiting'])
-                                rect_colour, text_colour = option_colour
-                                if rect_colour is not None:
-                                    option_colours[0] = rect_colour
-                                if text_colour is not None:
-                                    option_colours[1] = text_colour
-                                    
-                            if i == original_player or original_player < 0 and not i:
-                                option_colour = list(SELECTION['Selected'])
-                                rect_colour, text_colour = option_colour
-                                if rect_colour is not None:
-                                    option_colours[0] = rect_colour
-                                if text_colour is not None:
-                                    option_colours[1] = text_colour
-                            
-                            if [j, i] == flag_dict['player_options']:
-                                flag_dict['player_options'] = []
-                                option_colour = list(SELECTION['Hover'])
-                                rect_colour, text_colour = option_colour
-                                if rect_colour is not None:
-                                    option_colours[0] = rect_colour
-                                if text_colour is not None:
-                                    option_colours[1] = text_colour
-                                
-                            rect_colour, text_colour = option_colours
-                            
-                            option_square = (width_offset - padding,
-                                             height_list[j] - padding,
-                                             options_size[i][0] + padding * 2,
-                                             options_size[i][1] + padding)
-                            option_square_list[j].append(option_square)
-
-                            pygame.draw.rect(screen, rect_colour, option_square)
-                            
-                            screen.blit(font_sm.render(options[i], 1, text_colour),
-                                        (width_offset, height_list[j]))
-
-                    #Find if player has clicked on a new option
-                    for j in option_square_list:
-                        for i in range(len(option_square_list[j])):
-                            option_square = option_square_list[j][i]
-                            if (option_square[0] < x_raw < option_square[0] + option_square[2]
-                                and option_square[1] < y_raw < option_square[1] + option_square[3]):
-
-                                player_set = i-1
-                                if player_set < 0:
-                                    player_set = False
-                                flag_dict['player_options'] = [j, i]
-                                if clicked:
-                                    if not j:
-                                        p1 = player_set
-                                    else:
-                                        p2 = player_set
-                                    if not move_number:
-                                        players = (p1, p2)
-
-
-                    current_text_height += header_padding + p2_size[1]
-
-                    #Ask whether to flip the grid
-                    flip_grid_text = font_sm.render('Flip grid every 3 goes?',
-                                                    1, BLACK)
-
-                    flip_grid_size = flip_grid_text.get_rect()[2:]
-                    screen.blit(flip_grid_text,
-                                (font_padding[0] + overlay_width_padding,
-                                 current_text_height))
-                    background_width = screen_width - overlay_width_padding * 2
-
-                    options = ['Yes', 'No']
-                    options_text = [font_sm.render(i, 1, BLACK)
-                                    for i in options]
-                    options_size = [i.get_rect()[2:] for i in options_text]
-                    option_square_list = []
-                    
-                    for i in range(len(options)):
-                        width_offset = (sum(j[0] for j in options_size[:i])
-                                        + font_padding[0] * (i + 2)
-                                        + flip_grid_size[0] + overlay_width_padding)
-
-                        option_square = (width_offset - padding,
-                                         current_text_height - padding,
-                                         options_size[i][0] + padding * 2,
-                                         options_size[i][1] + padding)
-                        option_square_list.append(option_square)
-
-
-                        #Set colours
-                        option_colours = list(SELECTION['Default'])
-
-                        if (not i and allow_shuffle
-                            or i and not allow_shuffle):
-                            option_colour = list(SELECTION['Waiting'])
-                            rect_colour, text_colour = option_colour
-                            if rect_colour is not None:
-                                option_colours[0] = rect_colour
-                            if text_colour is not None:
-                                option_colours[1] = text_colour
-
-                        if (not i and shuffle_data[0]
-                            or i and not shuffle_data[0]):
-                            option_colour = list(SELECTION['Selected'])
-                            rect_colour, text_colour = option_colour
-                            if rect_colour is not None:
-                                option_colours[0] = rect_colour
-                            if text_colour is not None:
-                                option_colours[1] = text_colour
-
-                        if flag_dict['shuffle'] is not None:
-                            if (not i and flag_dict['shuffle']
-                                or i and not flag_dict['shuffle']):
-                                option_colour = list(SELECTION['Hover'])
-                                rect_colour, text_colour = option_colour
-                                if rect_colour is not None:
-                                    option_colours[0] = rect_colour
-                                if text_colour is not None:
-                                    option_colours[1] = text_colour
-                                    
-                        rect_colour, text_colour = option_colours
-
-                        pygame.draw.rect(screen, rect_colour, option_square)
-                        screen.blit(font_sm.render(options[i],
-                                                   1,
-                                                   text_colour),
-                                    (width_offset, current_text_height))
-
-                    
-                    #Find if player has clicked on a new option
-                    flag_dict['shuffle'] = None
-                    for i in range(len(option_square_list)):
-                        option_square = option_square_list[i]
-                        if (option_square[0] < x_raw < option_square[0] + option_square[2]
-                            and option_square[1] < y_raw < option_square[1] + option_square[3]):
-                            flag_dict['shuffle'] = not i
-                            if clicked:
-                                allow_shuffle = not i
-                                if not move_number:
-                                    shuffle_data[0] = allow_shuffle
-                            
-                            
-                    current_text_height += header_padding * 2 + flip_grid_size[1]
-                    
-                    
-                    #Tell to restart game
-                    if move_number:
-                        restart_message = 'Restart game to apply settings.'
-                        restart_text = font_sm.render(restart_message,
-                                                        1, BLACK)
-
-                        restart_size = restart_text.get_rect()[2:]
-                        screen.blit(restart_text,
-                                    ((screen_width - restart_size[0]) / 2,
-                                     current_text_height))    
-                                            
-
-                        current_text_height += header_padding + flip_grid_size[1]
-
-                    
-                    #New game button
-                    flag_name = 'new_game'
-                    button_text = 'New Game' if move_number else 'Start'
-                    if self._pygame_button(screen, font_lg, flag_dict, 
-                                           flag_name, button_text, x_raw, 
-                                           y_raw, clicked, screen_width, 
-                                           current_text_height, padding, 
-                                           font_lg_multiplier, bool(move_number)):
-                        reset_all = True
-                        flag_dict['overlay'] = None
-                    
-                    if move_number:
-                        flag_name = 'continue'
-                        button_text = 'Continue'
-                        if self._pygame_button(screen, font_lg, flag_dict, 
-                                               flag_name, button_text, x_raw, 
-                                               y_raw, clicked, screen_width, 
-                                               current_text_height, padding, 
-                                               font_lg_multiplier, -1):
-                            flag_dict['overlay'] = None
-                        
-                    current_text_height += header_padding + font_lg_size
-                    
-                    #Quit game button
-                    flag_name = 'exit'
-                    button_text = 'Exit'
-                    if self._pygame_button(screen, font_lg, flag_dict, 
-                                           flag_name, button_text, x_raw, 
-                                           y_raw, clicked, screen_width, 
-                                           current_text_height, padding, 
-                                           font_lg_multiplier):
-                        quit_game = True
-                    
-                            
-                        
-                    
-            pygame.display.flip()
-    
-    def _pygame_button(self, screen, font, flag_dict, flag_name, message, x_raw, y_raw,
-                       clicked, screen_width, height, padding, multiplier, width_multipler=0):
-    
-        #Set up text
-        text_colour = BLACK if flag_dict[flag_name] else GREY
-        text_object = font.render(message, 1, text_colour)
-        text_size = text_object.get_rect()[2:]
-        
-        
-        centre_offset = screen_width / 10 * width_multipler
-        text_x = (screen_width - text_size[0]) / 2
-        if width_multipler > 0:
-            text_x += text_size[0] / 2
-        if width_multipler < 0:
-            text_x -= text_size[0] / 2
-        text_x += centre_offset
-        
-        
-        text_square = (text_x - padding * (multiplier + 1),
-                       height - padding * multiplier,
-                       text_size[0] + padding * (2 * multiplier + 2),
-                       text_size[1] + padding * (2 * multiplier - 1))
-    
-        #pygame.draw.rect(screen, BLACK, text_square)
-        screen.blit(text_object, (text_x, height))
-        
-        flag_dict[flag_name] = False
-        
-        #Detect if mouse is over it
-        if (text_square[0] < x_raw < text_square[0] + text_square[2]
-            and text_square[1] < y_raw < text_square[1] + text_square[3]):
-            flag_dict[flag_name] = True
-            if clicked:
-                return True
-                
-        return False
-                
-                
+        RunPygame(self).play(p1, p2, allow_shuffle, end_when_no_points_left)
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -1239,6 +453,7 @@ class Connect3D(object):
             self.grid_data_last_updated
         except AttributeError:
             self.grid_data_last_updated = None
+        
 
         if self.grid_data_last_updated != self.grid_data or True:
             
@@ -1254,6 +469,11 @@ class Connect3D(object):
                 
                 current_player = self.grid_data[starting_point]
                 
+                #Fix for the pygame temporary numbers
+                current_player_fixed = None
+                if type(current_player) == int:
+                    current_player_fixed = 9 - current_player
+                    
                 if current_player != '':
                 
                     for i in DirectionCalculation().opposite_direction:
@@ -1277,6 +497,7 @@ class Connect3D(object):
                             
                             while current_point not in invalid_directions[j] and 0 < current_point < len(self.grid_data):
                                 current_point += direction_movement * int('-'[:j] + '1')
+                                
                                 if self.grid_data[current_point] == current_player:
                                     num_matches += 1
                                     list_match.append(current_point)
@@ -1573,6 +794,8 @@ class SimpleC3DAI(object):
         self.gd_len = self.C3DObject.segments_cubed
         self.difficulty = difficulty
         self.grid_data = [i if i in (self.player, self.enemy) else '' for i in C3DObject.grid_data]
+        
+        self.checks = 0
     
     def max_cell_points(self):
         """Get maximum number of points that can be gained from each empty cell,
@@ -1581,9 +804,10 @@ class SimpleC3DAI(object):
         max_points = defaultdict(int)
         filled_grid_data = [i if i != '' else self.player for i in self.grid_data]
         for cell_id in range(self.gd_len):
-            if cell_id == self.player and self.grid_data[cell_id] == '':
+            self.checks += 1
+            if filled_grid_data[cell_id] == self.player and self.grid_data[cell_id] == '':
                 max_points[cell_id] += self.check_grid(filled_grid_data, cell_id, self.player)
-
+                
         return get_max_dict_keys(max_points)
     
     def check_for_n_minus_one(self, grid_data=None):
@@ -1594,6 +818,7 @@ class SimpleC3DAI(object):
             grid_data (list or None, optional): Pass in a custom grid_data, 
                 leave as None to use the Connect3D one.
         """
+        
         if grid_data is None:
             grid_data = list(self.grid_data)
         
@@ -1628,11 +853,11 @@ class SimpleC3DAI(object):
                     if match:
                         for k, v in match.iteritems():
                             matches[k] += v
-                        
-                        #print dict(matches)
-                        
+                            
                 grid_data[i] = old_value
                 
+        self.C3DObject.ai_message.append('Possible Moves: {}'.format(str(dict(matches))[1:-1]))
+        
         if matches:
             return (matches, 1)
             
@@ -1668,6 +893,8 @@ class SimpleC3DAI(object):
                 current_point = cell_id
                 
                 while current_point not in invalid_directions[j] and 0 < current_point < len(grid_data):
+                
+                    self.checks += 1
                     current_point += direction_movement * int('-'[:j] + '1')
                     if grid_data[current_point] == player:
                         num_matches += 1
@@ -1700,10 +927,14 @@ class SimpleC3DAI(object):
         grid_data_joined_len = len(''.join(map(str, self.C3DObject.grid_data)))
         
         next_moves = []
-        output_text = []
-        if grid_data_joined_len > (self.C3DObject.segments - 2) * 2:
+        self.C3DObject.ai_message = []
+        ai_message = self.C3DObject.ai_message.append
+        self.checks = 0
+        
+        if grid_data_joined_len > (self.C3DObject.segments - 2) * 2 - 1:
             
-            point_based_move, far_away = SimpleC3DAI(self.C3DObject, self.player_num).look_ahead()
+            #point_based_move, far_away, iterations = SimpleC3DAI(self.C3DObject, self.player_num).look_ahead()
+            point_based_move, far_away = self.look_ahead()
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
             if not far_away:
@@ -1715,8 +946,22 @@ class SimpleC3DAI(object):
             
             #Set which order to do things in
             order_of_importance = int('-'[:int(far_away)] + '1')
+            
+            '''
+            #To do: check there are 2 matches to change order of importance back to block
+            #Find if there are 2 occurances at once, stops people tricking the AI
+            occurances = defaultdict(int)
+            for i in next_moves:
+                occurances[i] += 1
+            highest_occurance = max(occurances.iteritems(), key=operator.itemgetter(1))[1]
+            next_move = random.choice([k for k, v in occurances.iteritems() if v == highest_occurance])
+            
+            
+            0: 49 51 37 38   1: 49 17
+            '''
+            
             if ai_new_tactic:
-                output_text.append('AI changed tacic.')
+                ai_message('AI changed tacic.')
                 order_of_importance = random.choice((-1, 1))
             
             move1_player = [self.enemy, self.player][::order_of_importance]
@@ -1737,7 +982,7 @@ class SimpleC3DAI(object):
             #Make a random move determined by number of possible points
             else:
                 if not ai_noticed:
-                    output_text.append("AI didn't notice something.")
+                    ai_message("AI didn't notice something.")
                 next_moves = self.max_cell_points()
                 state = 'Random placement'
 
@@ -1751,11 +996,14 @@ class SimpleC3DAI(object):
         else:
             next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
             state = 'Starting'
+            iterations = 0
 
-        output_text.append('AI Objective: {}.'.format(state))
+        ai_message('AI Objective: {}.'.format(state))
         n = random.choice(next_moves)
         
-        output_text.append('Possible Moves: {}'.format(next_moves))
+        if len(next_moves) != len(self.grid_data) - len(''.join(map(str, self.grid_data))):
+            ai_message('Potential Moves: {}'.format(next_moves))
+        
         
         #Find if there are 2 occurances at once, stops people tricking the AI
         occurances = defaultdict(int)
@@ -1764,7 +1012,9 @@ class SimpleC3DAI(object):
         highest_occurance = max(occurances.iteritems(), key=operator.itemgetter(1))[1]
         next_move = random.choice([k for k, v in occurances.iteritems() if v == highest_occurance])
         
-        return next_move, output_text
+        ai_message('Calculations: {}'.format(self.checks + 1))
+        
+        return next_move
 
 class MouseToBlockID(object):
     """Converts mouse coordinates into the games block ID.
@@ -1801,12 +1051,30 @@ class MouseToBlockID(object):
         self.width = int((self.x + self.grid_main.size_x + chunk_size_x) / chunk_size_x) -1
         
 
-    def find_x_from_chunk(self):
+    def find_x_slice(self):
         """Find block IDs that are on the x segment"""
         past_middle = self.width >= self.grid_main.segments
-        if not past_middle:
+        
+        values = []
+        if self.width >= self.grid_main.segments:
+        
+            count = 0
+            while True:
+                n_multiple = self.grid_main.segments * count
+                width_addition = self.width - self.grid_main.segments + count
+                if width_addition < self.grid_main.segments:
+                    values.append(n_multiple + width_addition)
+                    if width_addition < self.grid_main.segments - 1:
+                        values.append(n_multiple + width_addition + 1)
+                        
+                else:
+                    break
+                count += 1
+        
+        elif self.width >= 0:
+        
             starting_point = self.grid_main.segments - self.width
-            values = [(starting_point - 1) * self.grid_main.segments]
+            values.append((starting_point - 1) * self.grid_main.segments)
 
             width_addition = 0
             for i in range(starting_point, self.grid_main.segments):
@@ -1817,24 +1085,11 @@ class MouseToBlockID(object):
                 else:
                     break
                 width_addition += 1
-                
-        else:
-            count = 0
-            values = []
-            while True:
-                n_multiple = self.grid_main.segments * count
-                width_addition = self.width - self.grid_main.segments + count
-                if width_addition < self.grid_main.segments:
-                    values.append(n_multiple + width_addition)
-                    if width_addition < self.grid_main.segments - 1:
-                        values.append(n_multiple + width_addition + 1)
-                else:
-                    break
-                count += 1
+        
             
         return values
 
-    def find_y_from_chunk(self):
+    def find_y_slice(self):
         """Find block IDs that are on the y segment"""
         
         height = self.height
@@ -1860,11 +1115,11 @@ class MouseToBlockID(object):
             
         return values
 
-    def find_possible_blocks(self):
+    def find_overlap(self):
         """Combine the block IDs to find the 1 or 2 matching ones."""
         
-        x_blocks = self.find_x_from_chunk()
-        y_blocks = self.find_y_from_chunk()
+        x_blocks = self.find_x_slice()
+        y_blocks = self.find_y_slice()
         if self.y_coordinate >= self.grid_main.segments:
             return []
         return [i for i in x_blocks if i in y_blocks]
@@ -1879,7 +1134,7 @@ class MouseToBlockID(object):
         block off the side of the board, it allows the coorect maths to be
         done without any modification.
         """
-        matching_blocks = self.find_possible_blocks()
+        matching_blocks = self.find_overlap()
         if not matching_blocks:
             return None
         
@@ -2113,6 +1368,782 @@ def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default, _debug=
         return (0, 0, 1)
     
     return get_bot_difficulty(_default, _debug)
+
+    
+class RunPygame(object):
+    
+    overlay_marker = '/'
+    player_colours = [GREEN, LIGHTBLUE]
+    empty_colour = YELLOW
+    move_colour = RED
+    fps_idle = 15
+    fps_main = 30
+    fps_smooth = 120
+    padding = (5, 10)
+    overlay_width = 500
+    option_padding = 2
+    
+    def __init__(self, C3DObject, screen_width=640, screen_height=860, default_length=200, default_angle=24):
+        self.C3DObject = C3DObject
+        self.width = screen_width
+        self.height = screen_height
+        self.length = default_length
+        self.angle = default_angle
+        self.player = int(not self.C3DObject.current_player)
+        
+        self.convert = CoordinateConvert(self.width, self.height)
+        self.to_pygame = self.convert.to_pygame
+        self.to_canvas = self.convert.to_canvas
+        
+    def _next_player(self):
+        self.player = int(not self.player)
+    
+    def _previous_player(self):
+        self._next_player()
+    
+    def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
+    
+        debug = True
+        allow_shuffle = False
+    
+        #Setup pygame
+        pygame.init()
+        self.screen = pygame.display.set_mode((self.width, self.height))
+        self.clock = pygame.time.Clock()
+        pygame.display.set_caption('Connect 3D')
+        background_colour = BACKGROUND
+        self.backdrop = pygame.Surface((self.width, self.height))
+        self.backdrop.set_alpha(196)
+        self.backdrop.fill(WHITE)
+        
+        #Import the font
+        self.font_file = 'Miss Monkey.ttf'
+        try:
+            pygame.font.Font(self.font_file, 0)
+        except IOError:
+            raise IOError('unable to load font - download from http://www.dafont.com/miss-monkey.font')
+        self.font_lg = pygame.font.Font(self.font_file, 36)
+        self.font_lg_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
+        self.font_md = pygame.font.Font(self.font_file, 24)
+        self.font_md_size = self.font_md.render('', 1, BLACK).get_rect()[3]
+        self.font_sm = pygame.font.Font(self.font_file, 18)
+        self.font_sm_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
+            
+        self.draw_data = GridDrawData(self.length,
+                                 self.C3DObject.segments,
+                                 self.angle,
+                                 padding = self.angle / self.C3DObject.segments)
+        
+        held_keys = {'angle': 0,
+                     'size': 0}
+        game_flags = {'clicked': False,
+                      'mouse_used': True,
+                      'quit': False,
+                      'recalculate': False,
+                      'reset': False,
+                      'hover': False,
+                      'flipped': False,
+                      'disable_background_clicks': False,
+                      'winner': None}
+        game_data = {'players': [p1, p2],
+                     'overlay': None,
+                     'move_number': 0,
+                     'shuffle': [allow_shuffle, 3]}
+        store_data = {'waiting': False,
+                      'waiting_start': 0,
+                      'shuffle_count': 0,
+                      'temp_fps': self.fps_main,
+                      'player_hover': None,
+                      'shuffle_hover': None,
+                      'new_game': False,
+                      'continue': False,
+                      'exit': False,
+                      'instructions': False}
+        block_data = {'id': None,
+                      'object': None,
+                      'taken': False}
+        tick_data = {'old': 0,
+                     'new': 0,
+                     'update': 4,
+                     'total': 0}
+                      
+        mouse_data = pygame.mouse.get_pos()
+                     
+        #How long to wait before accepting a move
+        moving_wait = 0.5
+        
+        #For controlling how the angle and length of grid update
+        angle_increment = 0.25
+        angle_max = 35
+        length_exponential = 1.1
+        length_increment = 0.5
+        length_multiplier = 0.01
+        time_current = time.time()
+        time_update = 0.01
+        
+        while True:
+                    
+            self.clock.tick(store_data['temp_fps'] or self.fps_idle)
+            tick_data['new'] = pygame.time.get_ticks()
+           
+            if game_flags['quit']:
+                return
+            
+            #Check if no spaces are left
+            if '' not in self.C3DObject.grid_data:
+                game_flags['winner'] = self.C3DObject._get_winning_player()
+                print 'finish this'
+        
+            #Reset loop
+            self.screen.fill(background_colour)
+            if tick_data['total']:
+                game_flags['recalculate'] = False
+                game_flags['mouse_used'] = False
+                game_flags['clicked'] = False
+                game_flags['flipped'] = False
+                game_flags['disable_background_clicks'] = False
+                store_data['temp_fps'] = None
+            tick_data['total'] += 1
+            
+            
+            #Reinitialise the grid
+            if game_flags['reset']:
+                game_flags['reset'] = False
+                game_data['move_number'] = 0
+                game_data['shuffle'][0] = allow_shuffle
+                game_data['players'] = (p1, p2)
+                self.C3DObject = Connect3D(self.C3DObject.segments)
+                game_flags['hover'] = None
+                game_flags['recalculate'] = True
+                store_data['waiting'] = False
+                game_flags['winner'] = None
+                
+                
+            if game_flags['hover'] is not None:
+                if self.C3DObject.grid_data[game_flags['hover']] == self.overlay_marker:
+                    self.C3DObject.grid_data[game_flags['hover']] = ''
+                game_flags['hover'] = None
+            
+            if game_data['overlay']:
+                game_flags['disable_background_clicks'] = True
+            
+            #Delay each go
+            if store_data['waiting']:                    
+                game_flags['disable_background_clicks'] = True
+                
+                if store_data['waiting_start'] < time.time():
+                    game_flags['recalculate'] = True
+                
+                    attempted_move = self.C3DObject.make_move(store_data['waiting'][1], store_data['waiting'][0])
+                    
+                    if attempted_move is not None:
+                        game_data['move_number'] += 1
+                        self.C3DObject.update_score()
+                        store_data['shuffle_count'] += 1
+                        
+                        if store_data['shuffle_count'] >= game_data['shuffle'][1] and game_data['shuffle'][0]:
+                            store_data['shuffle_count'] = 0
+                            self.C3DObject.shuffle()
+                            game_flags['flipped'] = True
+                        else:
+                            game_flags['flipped'] = False
+                            
+                    else:
+                        self._next_player()
+                        print "Invalid move: {}".format(store_data['waiting'][0])
+                        
+                    store_data['waiting'] = False
+                    
+                else:
+                    try:
+                        self.C3DObject.grid_data[store_data['waiting'][0]] = 9 - store_data['waiting'][1]
+                    except TypeError:
+                        print store_data['waiting'], ai_turn
+                        raise TypeError('trying to get to the bottom of this')
+                    
+                
+            #Run the AI
+            ai_turn = None
+            if game_data['players'][self.player] is not False:
+                if not game_flags['disable_background_clicks']:
+                    ai_turn = SimpleC3DAI(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
+                
+            
+            #Event loop
+            for event in pygame.event.get():
+
+                if event.type == pygame.QUIT:
+                    return
+
+                #Get single key presses
+                if event.type == pygame.KEYDOWN:
+                    game_flags['recalculate'] = True
+
+                    if event.key == pygame.K_ESCAPE:
+                        if game_data['overlay'] is None:
+                            game_data['overlay'] = 'options'
+                        else:
+                            game_data['overlay'] = None
+                    
+                    if event.key == pygame.K_RIGHTBRACKET:
+                        self.C3DObject.segments += 1
+                        game_flags['reset'] = True
+                        
+                    if event.key == pygame.K_LEFTBRACKET:
+                        self.C3DObject.segments -= 1
+                        self.C3DObject.segments = max(1, self.C3DObject.segments)
+                        game_flags['reset'] = True
+
+                    if event.key == pygame.K_UP:
+                        held_keys['angle'] = 1
+
+                    if event.key == pygame.K_DOWN:
+                        held_keys['angle'] = -1
+
+                    if event.key == pygame.K_RIGHT:
+                        held_keys['size'] = 1
+
+                    if event.key == pygame.K_LEFT:
+                        held_keys['size'] = -1
+
+                        
+                #Get mouse clicks
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    game_flags['clicked'] = event.button
+                    game_flags['mouse_used'] = True
+                
+                if event.type == pygame.MOUSEMOTION:
+                    game_flags['mouse_used'] = True
+            
+            
+            #Get held down key presses
+            key = pygame.key.get_pressed()
+            update_yet = False
+            if tick_data['new'] - tick_data['old'] > tick_data['update']:
+                update_yet = True
+                tick_data['old'] = pygame.time.get_ticks()
+                
+            if held_keys['angle']:
+                
+                if not (key[pygame.K_UP] or key[pygame.K_DOWN]):
+                    held_keys['angle'] = 0
+                    
+                #elif time_current < time.time() - time_update:
+                elif update_yet:
+                    self.draw_data.angle += angle_increment * held_keys['angle']
+                    game_flags['recalculate'] = True
+                    store_data['temp_fps'] = self.fps_smooth
+            
+            if held_keys['size']:
+                if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
+                    held_keys['size'] = 0
+                    
+                #elif time_current < time.time() - time_update:
+                elif update_yet:
+                    length_exp = (max(length_increment,
+                                     (pow(self.draw_data.length, length_exponential)
+                                      - 1 / length_increment))
+                                  * length_multiplier)
+                    self.draw_data.length += length_exp * held_keys['size']
+                    game_flags['recalculate'] = True
+                    store_data['temp_fps'] = self.fps_smooth
+
+                
+            
+            #Update mouse information
+            if game_flags['mouse_used'] or game_flags['recalculate']:
+                game_flags['recalculate'] = True
+                mouse_data = pygame.mouse.get_pos()
+                x, y = self.to_pygame(*mouse_data)
+                block_data['object'] = MouseToBlockID(x, y, self.draw_data)
+                block_data['id'] = block_data['object'].calculate()
+                block_data['taken'] = True
+                if block_data['id'] is not None and ai_turn is None:
+                    block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
+                    
+            
+            #If mouse was clicked
+            if not game_flags['disable_background_clicks']:
+                if game_flags['clicked'] == 1 and not block_data['taken'] or ai_turn is not None:
+                    store_data['waiting'] = (ai_turn or block_data['id'], self.player)
+                    store_data['waiting_start'] = time.time() + moving_wait
+                    self._next_player()
+                   
+                   
+            #Highlight square
+            if not block_data['taken'] and not store_data['waiting'] and not game_data['overlay']:
+                self.C3DObject.grid_data[block_data['id']] = self.overlay_marker
+                game_flags['hover'] = block_data['id']
+                
+            
+            #Recalculate the data to draw the grid
+            if game_flags['recalculate']:
+            
+                if not store_data['temp_fps']:
+                    store_data['temp_fps'] = self.fps_main
+                    
+                self.draw_data.segments = self.C3DObject.segments
+                
+                self.draw_data.length = float(max((pow(1 / length_increment, 2) * self.draw_data.segments), self.draw_data.length, 2))
+                self.draw_data.angle = float(max(angle_increment, min(89, self.draw_data.angle, angle_max)))
+                
+                self.draw_data._calculate()
+                if game_flags['reset']:
+                    continue
+                
+            #Draw coloured squares
+            for i in self.C3DObject.range_data:
+                if self.C3DObject.grid_data[i] != '':
+                
+                    chunk = i / self.C3DObject.segments_squared
+                    coordinate = list(self.draw_data.relative_coordinates[i % self.C3DObject.segments_squared])
+                    coordinate[1] -= chunk * self.draw_data.chunk_height
+                    
+                    square = [coordinate,
+                              (coordinate[0] + self.draw_data.size_x_sm,
+                               coordinate[1] - self.draw_data.size_y_sm),
+                              (coordinate[0],
+                               coordinate[1] - self.draw_data.size_y_sm * 2),
+                              (coordinate[0] - self.draw_data.size_x_sm,
+                               coordinate[1] - self.draw_data.size_y_sm),
+                              coordinate]
+
+                    #Player has mouse over square
+                    if self.C3DObject.grid_data[i] == self.overlay_marker:
+                        block_colour = self.empty_colour
+                    
+                    #Square is taken by a player
+                    else:
+                        j = self.C3DObject.grid_data[i]
+                        mix_colour = None
+                        
+                        #Square is being moved into, mix with red
+                        if isinstance(j, int) and j > 1:
+                            j = 9 - j
+                            moving_block = square
+                            mix_colour = (255, 128, 128)
+                            
+                        block_colour = self.player_colours[j]
+                        if mix_colour is not None:
+                            block_colour = [(block_colour[i] + mix_colour[i]) / 2 for i in range(3)]
+                        
+                    pygame.draw.polygon(self.screen,
+                                        block_colour,
+                                        [self.to_canvas(*corner)
+                                         for corner in square],
+                                        0)
+                                        
+                
+            #Draw grid
+            for line in self.draw_data.line_coordinates:
+                pygame.draw.aaline(self.screen,
+                                   BLACK,
+                                   self.to_canvas(*line[0]),
+                                   self.to_canvas(*line[1]),
+                                   1)
+            
+            
+            self._draw_score(game_flags['winner'])
+            
+            if debug:
+                self._draw_debug(block_data)
+            
+            
+            if game_data['overlay']:
+            
+                store_data['temp_fps'] = self.fps_main
+                header_padding = self.padding[1] * 5
+                subheader_padding = self.padding[1] * 2
+                self.blit_list = []
+                self.rect_list = []
+                self.screen.blit(self.backdrop, (0, 0))
+                screen_width_offset = (self.width - self.overlay_width) / 2
+                
+                current_height = header_padding + self.padding[1]
+                
+                #Set page titles
+                if game_data['move_number'] + bool(store_data['waiting']) and game_data['overlay'] == 'options':
+                    title_message = 'Options'
+                    subtitle_message = ''
+                else:
+                    title_message = 'Connect 3D'
+                    subtitle_message = 'By Peter Hunt'
+                    
+                title_text = self.font_lg.render(title_message, 1, BLACK)
+                title_size = title_text.get_rect()[2:]
+                self.blit_list.append((title_text, (self.padding[0] + screen_width_offset, current_height)))
+                
+                current_height += self.padding[1] + title_size[1]
+                
+                subtitle_text = self.font_md.render(subtitle_message, 1, BLACK)
+                subtitle_size = subtitle_text.get_rect()[2:]
+                self.blit_list.append((subtitle_text, (self.padding[0] + screen_width_offset, current_height)))
+                
+                current_height += subtitle_size[1]
+                if subtitle_message:
+                    current_height += header_padding
+                    
+                
+                if game_data['overlay'] == 'options':
+                    
+                    
+                    #Player options
+                    players_unsaved = [p1, p2]
+                    players_original = list(game_data['players'])
+                    player_hover = store_data['player_hover']
+                    store_data['player_hover'] = None
+                    options = ['Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme']
+                    
+                    for player in range(len(game_data['players'])):
+                        if players_unsaved[player] is False:
+                            players_unsaved[player] = -1
+                        else:
+                            players_unsaved[player] = get_bot_difficulty(players_unsaved[player], _debug=True)
+                        if players_original[player] is False:
+                            players_original[player] = -1
+                        else:
+                            players_original[player] = get_bot_difficulty(players_original[player], _debug=True)
+                            
+                        params = []
+                        for i in range(len(options)):
+                            params.append([i == players_unsaved[player] or players_unsaved[player] < 0 and not i,
+                                           i == players_original[player] or players_original[player] < 0 and not i,
+                                           [player, i] == player_hover])
+                        
+                        option_data = self._draw_options('Player {}: '.format(player),
+                                                         options,
+                                                         params,
+                                                         screen_width_offset,
+                                                         header_padding,
+                                                         current_height)
+                        
+                        selected_option, options_size = option_data
+                        
+                        current_height += options_size
+                        if not player:
+                            current_height += self.padding[1]
+                        else:
+                            current_height += header_padding
+                        
+                        #Calculate mouse info
+                        if selected_option is not None:
+                            player_set = selected_option - 1
+                            if player_set < 0:
+                                player_set = False
+                            store_data['player_hover'] = [player, selected_option]
+                            if game_flags['clicked']:
+                                if not player:
+                                    p1 = player_set
+                                else:
+                                    p2 = player_set
+                                if not game_data['move_number']:
+                                    game_data['players'] = (p1, p2)  
+                                 
+                    
+                    #Ask whether to flip the grid
+                    options = ['Yes', 'No']
+                    params = []
+                    for i in range(len(options)):
+                        params.append([not i and allow_shuffle or i and not allow_shuffle,
+                                       not i and game_data['shuffle'][0] or i and not game_data['shuffle'][0],
+                                       store_data['shuffle_hover'] is not None and (not i or i and not store_data['shuffle_hover'])])
+                    option_data = self._draw_options('Flip grid every 3 goes? ',
+                                                     ['Yes', 'No'],
+                                                     params,
+                                                     screen_width_offset,
+                                                     header_padding,
+                                                     current_height)
+                                                     
+                    selected_option, options_size = option_data
+                    current_height += header_padding + options_size
+                    
+                    #Calculate mouse info
+                    store_data['shuffle_hover'] = None
+                    if selected_option is not None:
+                        store_data['shuffle_hover'] = not selected_option
+                        if game_flags['clicked']:
+                            allow_shuffle = not selected_option
+                            if not game_data['move_number']:
+                                game_data['shuffle'][0] = allow_shuffle
+                                                  
+                    box_spacing = header_padding + self.font_md_size if game_data['move_number'] else self.padding[1] + self.font_lg_size
+
+                    box_height = [current_height]
+                    
+                    #Tell to restart game
+                    if game_data['move_number']:
+                        current_height += box_spacing
+                        restart_message = 'Restart game to apply settings.'
+                        restart_text = self.font_md.render(restart_message, 1, BLACK)
+                        restart_size = restart_text.get_rect()[2:]
+                        self.blit_list.append((restart_text, ((self.width - restart_size[0]) / 2, current_height)))
+                        current_height += subheader_padding + restart_size[1]
+                        
+                        #Continue button
+                        if self._pygame_button('Continue', 
+                                               store_data['continue'], 
+                                               current_height, 
+                                               -1):
+                            store_data['continue'] = True
+                            if game_flags['clicked']:
+                                game_data['overlay'] = None
+                        else:
+                            store_data['continue'] = False
+                            
+                    
+                    box_height.append(current_height)
+                    current_height += box_spacing
+                    
+                    #Instructions button
+                    if self._pygame_button('Instructions' if game_data['move_number'] else 'Help', 
+                                           store_data['instructions'], 
+                                           box_height[0],
+                                           0 if game_data['move_number'] else 1):
+                        store_data['instructions'] = True
+                        if game_flags['clicked']:
+                            game_data['overlay'] = 'instructions'
+                    else:
+                        store_data['instructions'] = False
+                    
+                    #New game button
+                    if self._pygame_button('New Game' if game_data['move_number'] else 'Start', 
+                                           store_data['new_game'], 
+                                           box_height[bool(game_data['move_number'])], 
+                                           bool(game_data['move_number']) if game_data['move_number'] else -1):
+                        store_data['new_game'] = True
+                        if game_flags['clicked']:
+                            game_flags['reset'] = True
+                            game_data['overlay'] = None
+                    else:
+                        store_data['new_game'] = False
+                                                
+                        
+                    
+                    #Quit button
+                    if self._pygame_button('Quit to Desktop' if game_data['move_number'] else 'Quit',
+                                           store_data['exit'], 
+                                           current_height):
+                        store_data['exit'] = True
+                        if game_flags['clicked']:
+                            game_flags['quit'] = True
+                    else:
+                        store_data['exit'] = False
+                        
+                #Draw background
+                background_square = (screen_width_offset, header_padding, self.overlay_width, current_height + self.padding[1])
+                pygame.draw.rect(self.screen, WHITE, background_square, 0)
+                pygame.draw.rect(self.screen, BLACK, background_square, 1)
+                
+                for i in self.rect_list:
+                    rect_data = [self.screen] + i
+                    pygame.draw.rect(*rect_data)
+                
+                for i in self.blit_list:
+                    self.screen.blit(*i)
+            
+            
+            pygame.display.flip()
+                       
+    def _pygame_button(self, message, hover, current_height, width_multipler=0):
+                       
+        multiplier = 3
+        
+        #Set up text
+        text_colour = BLACK if hover else GREY
+        text_object = self.font_lg.render(message, 1, text_colour)
+        text_size = text_object.get_rect()[2:]
+        
+        
+        centre_offset = self.width / 10 * width_multipler
+        text_x = (self.width - text_size[0]) / 2
+        if width_multipler > 0:
+            text_x += text_size[0] / 2
+        if width_multipler < 0:
+            text_x -= text_size[0] / 2
+        text_x += centre_offset
+        
+        
+        text_square = (text_x - self.option_padding * (multiplier + 1),
+                       current_height - self.option_padding * multiplier,
+                       text_size[0] + self.option_padding * (2 * multiplier + 2),
+                       text_size[1] + self.option_padding * (2 * multiplier - 1))
+    
+        self.blit_list.append((text_object, (text_x, current_height)))
+        
+        #Detect if mouse is over it
+        x, y = pygame.mouse.get_pos()
+        in_x = text_square[0] < x < text_square[0] + text_square[2]
+        in_y = text_square[1] < y < text_square[1] + text_square[3]
+            
+        if in_x and in_y:
+            return True
+                
+        return False
+        
+        
+    def _draw_options(self, message, options, params, screen_width_offset, header_padding, current_height):
+        '''
+        Params:
+        param[0] = selected
+        param[1] = active
+        param[2] = hovering
+        '''
+        message_text = self.font_md.render(message, 1, BLACK)
+        message_size = message_text.get_rect()[2:]
+        self.blit_list.append((message_text, (self.padding[0] + screen_width_offset, current_height)))
+        
+        option_text = [self.font_md.render(i, 1, BLACK) for i in options]
+        option_size = [i.get_rect()[2:] for i in option_text]
+        option_square_list = []
+    
+        for i in range(len(options)):
+            width_offset = (sum(j[0] for j in option_size[:i])
+                            + self.padding[0] * (i + 2)
+                            + message_size[0] + screen_width_offset)
+
+            option_square = (width_offset - self.option_padding,
+                             current_height - self.option_padding,
+                             option_size[i][0] + self.option_padding * 2,
+                             option_size[i][1] + self.option_padding)
+            option_square_list.append(option_square)
+            
+            
+            #Set colours
+            option_colours = list(SELECTION['Default'])
+            param_order = ('Waiting', 'Selected', 'Hover')
+            for j in range(len(params[i])):
+                if params[i][j]:
+                    rect_colour, text_colour = list(SELECTION[param_order[j]])
+                    if rect_colour is not None:
+                        option_colours[0] = rect_colour
+                    if text_colour is not None:
+                        option_colours[1] = text_colour
+                    
+            rect_colour, text_colour = option_colours
+            
+            self.rect_list.append([rect_colour, option_square])
+            self.blit_list.append((self.font_md.render(options[i], 1, text_colour), (width_offset, current_height)))
+        
+        x, y = pygame.mouse.get_pos()
+        selected_square = None
+        for square in range(len(option_square_list)):
+            option_square = option_square_list[square]
+            in_x = option_square[0] < x < option_square[0] + option_square[2]
+            in_y = option_square[1] < y < option_square[1] + option_square[3]
+            if in_x and in_y:
+                selected_square = square
+                
+        return (selected_square, message_size[1]) 
+        
+            
+    
+    def _format_output(self, text):
+        left_bracket = ('[', '{')
+        right_bracket = (']', '}')
+        for i in left_bracket:
+            text = text.replace(i, '(')
+        for i in right_bracket:
+            text = text.replace(i, ')')
+        return text
+    
+    def _draw_score(self, winner):
+        #Format scores
+        point_marker = '/'
+        p0_points = self.C3DObject.current_points[0]
+        p1_points = self.C3DObject.current_points[1]
+        
+        p0_font_top = self.font_md.render('Player 0', 1,  BLACK, self.player_colours[0])
+        p1_font_top = self.font_md.render('Player 1', 1, BLACK, self.player_colours[1])
+        p0_font_bottom = self.font_lg.render(point_marker * p0_points, 1,  BLACK)
+        p1_font_bottom = self.font_lg.render(point_marker * p1_points, 1,  BLACK)
+        
+        p_size_top = p1_font_top.get_rect()[2:]
+        p_size_bottom = p1_font_bottom.get_rect()[2:]
+        
+        if winner is None:
+            go_message = "Player {}'s turn!".format(self.player)
+        else:
+            if len(winner) != 1:
+                go_message = 'The game was a draw!'
+            else:
+                go_message = 'Player {} won!'.format(winner[0])
+            
+        go_font = self.font_lg.render(go_message, 1, BLACK)
+        go_size = go_font.get_rect()[2:]
+        
+        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.padding[1] * 3))
+        self.screen.blit(p0_font_top, (self.padding[0], self.padding[1]))
+        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.padding[0], self.padding[1]))
+        self.screen.blit(p0_font_bottom, (self.padding[0], self.padding[1] + p_size_top[1]))
+        self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.padding[0], self.padding[1] + p_size_top[1]))
+
+    
+    def _draw_debug(self, block_data):
+    
+        mouse_data = pygame.mouse.get_pos()
+        x, y = self.to_pygame(*mouse_data)
+        
+        debug_coordinates = block_data['object'].calculate(debug=1)
+        if debug_coordinates is not None:
+            if all(i is not None for i in debug_coordinates):
+                pygame.draw.aaline(self.screen,
+                            RED,
+                            pygame.mouse.get_pos(),
+                            self.to_canvas(*debug_coordinates[1]),
+                            1)
+                pygame.draw.line(self.screen,
+                            RED,
+                            self.to_canvas(*debug_coordinates[0]),
+                            self.to_canvas(*debug_coordinates[1]),
+                            2)
+    
+        possible_blocks = block_data['object'].find_overlap()
+        
+        y_mult = str(block_data['object'].y_coordinate * self.C3DObject.segments_squared)
+        if y_mult[0] != '-':
+            y_mult = '+{}'.format(y_mult)
+        info = ['DEBUG INFO',
+                'FPS: {}'.format(int(round(self.clock.get_fps(), 0))),
+                'Segments: {}'.format(self.C3DObject.segments),
+                'Angle: {}'.format(self.draw_data.angle),
+                'Side length: {}'.format(self.draw_data.length),
+                'Coordinates: {}'.format(mouse_data),
+                'Chunk: {}'.format((block_data['object'].width,
+                                    block_data['object'].height,
+                                    block_data['object'].y_coordinate)),
+                'X Slice: {}'.format(block_data['object'].find_x_slice()),
+                'Y Slice: {}'.format(block_data['object'].find_y_slice()),
+                'Possible blocks: {} {}'.format(possible_blocks, y_mult),
+                'Block weight: {}'.format(block_data['object'].calculate(debug=2)),
+                'Block ID: {}'.format(block_data['object'].calculate())]
+                
+                
+        font_render = [self.font_sm.render(self._format_output(i), 1, BLACK) for i in info]
+        font_size = [i.get_rect()[2:] for i in font_render]
+        for i in range(len(info)):
+            message_height = self.height - sum(j[1] for j in font_size[i:])
+            self.screen.blit(font_render[i], (0, message_height))
+            
+        
+        
+        #Format the AI text output
+        ai_message = []
+        for i in self.C3DObject.ai_message:
+        
+            #Split into chunks of 50 if longer
+            message_len = len(i)
+            message = [self._format_output(i[n * 50:(n + 1) * 50]) for n in range(round_up(message_len / 50.0))]
+            ai_message += message
+        
+        font_render = [self.font_sm.render(i, 1, BLACK) for i in ai_message]
+        font_size = [i.get_rect()[2:] for i in font_render]
+
+        for i in range(len(ai_message)):
+            message_height = self.height - sum(j[1] for j in font_size[i:])
+            self.screen.blit(font_render[i], (self.width - font_size[i][0], message_height))
+    
+def round_up(x):
+    return int(x) + bool(x % 1)
 
 
 if __name__ == '__main__':
