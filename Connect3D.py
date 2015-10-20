@@ -804,9 +804,9 @@ class SimpleC3DAI(object):
         max_points = defaultdict(int)
         filled_grid_data = [i if i != '' else self.player for i in self.grid_data]
         for cell_id in range(self.gd_len):
-            self.checks += 1
+            self.checks += 1            
             if filled_grid_data[cell_id] == self.player and self.grid_data[cell_id] == '':
-                max_points[cell_id] += self.check_grid(filled_grid_data, cell_id, self.player)
+                max_points[cell_id] = self.check_grid(filled_grid_data, cell_id, self.player)
                 
         return get_max_dict_keys(max_points)
     
@@ -928,26 +928,16 @@ class SimpleC3DAI(object):
         self.C3DObject.ai_message = []
         ai_message = self.C3DObject.ai_message.append
         self.checks = 0
+        state = None
         
-        if grid_data_joined_len < (self.C3DObject.segments - 2) * 2:
-        
-            if random.uniform(0, 100) > chance_of_not_noticing:
-                next_moves = self.max_cell_points()
-            else:
-                next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
-                
-            state = 'Starting'
-            
-        else:
+        if grid_data_joined_len > (self.C3DObject.segments - 2) * 2 - 1:
             
             point_based_move, far_away = self.look_ahead()
             
+            #Format debug message
             possible_moves_type = ['Block', 'Gain']
             if not self.player:
                 possible_moves_type = possible_moves_type[::-1]
-                
-            possible_moves_message = str({possible_moves_type[k]: v 
-                                            for k, v in point_based_move.iteritems()})[1:-1]
             for k, v in point_based_move.iteritems():
                 if k == self.player:
                     message = 'Gain Moves: {}'
@@ -964,36 +954,54 @@ class SimpleC3DAI(object):
                 chance_of_not_noticing /= chance_of_not_noticing_divide
                 chance_of_not_noticing = pow(chance_of_not_noticing, pow(grid_data_joined_len / float(len(self.C3DObject.grid_data)), 0.4))
             
-            ai_noticed = random.uniform(0, 100) > chance_of_not_noticing
-            ai_new_tactic = random.uniform(0, 100) < chance_of_changing_tactic
             
             #Set which order to do things in
             order_of_importance = int('-'[:int(far_away)] + '1')
             
-            '''
-            #To do: check there are 2 matches to change order of importance back to block
-            #Find if there are 2 occurances at once, stops people tricking the AI
-            occurances = defaultdict(int)
-            for i in next_moves:
-                occurances[i] += 1
-            highest_occurance = max(occurances.iteritems(), key=operator.itemgetter(1))[1]
-            next_move = random.choice([k for k, v in occurances.iteritems() if v == highest_occurance])
-            
-            
-            0: 49 51 37 38   1: 49 17
-            '''
-            
+            ai_new_tactic = random.uniform(0, 100) < chance_of_changing_tactic
             if ai_new_tactic:
                 ai_message('AI changed tacic.')
                 order_of_importance = random.choice((-1, 1))
-            
+                
             move1_player = [self.enemy, self.player][::order_of_importance]
             move1_text = ['Blocking opposing player', 'Gaining points'][::order_of_importance]
             
-            state = None
+            
+            
+            #Predict if other player is trying to trick the AI
+            #(or try trick the player if the setup is right)
+            if random.uniform(0, 100) > chance_of_not_noticing:
+            
+                matching_ids = [defaultdict(int) for i in range(3)]
+                for k, v in point_based_move.iteritems():
+                    for i in v:
+                        matching_ids[k][i] += 1
+                        matching_ids[2][i] += 1
+                
+                if matching_ids[2]:
+                    
+                    if matching_ids[move1_player[0]]:
+                        highest_occurance = max(matching_ids[move1_player[0]].iteritems(), key=operator.itemgetter(1))[1]
+                        if highest_occurance > 1:
+                            next_moves = [k for k, v in matching_ids[move1_player[0]].iteritems() if v == highest_occurance]
+                            state = 'Forward thinking ({})'.format(move1_text[0])
+                        
+                    if not next_moves and matching_ids[move1_player[1]]:
+                        highest_occurance = max(matching_ids[move1_player[1]].iteritems(), key=operator.itemgetter(1))[1]
+                        if highest_occurance > 1:
+                            next_moves = [k for k, v in matching_ids[move1_player[1]].iteritems() if v == highest_occurance]
+                            state = 'Forward thinking ({})'.format(move1_text[1])
+                    
+                    if not next_moves:
+                        highest_occurance = max(matching_ids[2].iteritems(), key=operator.itemgetter(1))[1]
+                        if highest_occurance > 1:
+                            next_moves = [k for k, v in matching_ids[2].iteritems() if v == highest_occurance]
+                            state = 'Forward thinking'
+            
             
             #Make a move based on other points
-            if point_based_move and ai_noticed:
+            ai_noticed = random.uniform(0, 100) > chance_of_not_noticing
+            if point_based_move and ai_noticed and (not next_moves or not far_away):
                 if point_based_move[move1_player[0]]:
                     next_moves = point_based_move[move1_player[0]]
                     state = move1_text[0]
@@ -1003,36 +1011,38 @@ class SimpleC3DAI(object):
                     state = move1_text[1]
             
             #Make a random move determined by number of possible points
-            else:
+            elif not state:
                 if not ai_noticed:
                     ai_message("AI didn't notice something.")
+                state = False
+                
+        #Make a semi random placement
+        if not state:
+            if not chance_of_not_noticing and random.uniform(0, 100) > chance_of_not_noticing:
                 next_moves = self.max_cell_points()
+                state = 'Predictive placement'
+            else:
                 state = 'Random placement'
-
             
-            #Make a totally random move
-            if not next_moves:
-                next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
-                if state is None:
-                    state = 'Struggling'
+            if state is None:
+                state = 'Starting'
+            
+        #Make a totally random move
+        if not next_moves:
+            next_moves = [i for i in range(self.gd_len) if self.grid_data[i] == '']
+            if state is None:
+                state = 'Struggling'
+            
         
-
         ai_message('AI Objective: {}.'.format(state))
         n = random.choice(next_moves)
         
         if len(next_moves) != len(self.grid_data) - len(''.join(map(str, self.grid_data))):
             ai_message('Potential Moves: {}'.format(next_moves))
         
-        
-        #Find if there are 2 occurances at once, stops people tricking the AI
-        occurances = defaultdict(int)
-        for i in next_moves:
-            occurances[i] += 1
-        highest_occurance = max(occurances.iteritems(), key=operator.itemgetter(1))[1]
-        next_move = random.choice([k for k, v in occurances.iteritems() if v == highest_occurance])
+        next_move = random.choice(next_moves)
         
         ai_message('Chosen Move: {}'.format(next_move))
-            
         ai_message('Calculations: {}'.format(self.checks + 1))
         
         return next_move
