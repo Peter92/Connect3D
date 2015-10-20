@@ -1434,8 +1434,8 @@ class RunPygame(object):
     
     def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
     
-        debug = True
         allow_shuffle = False
+        debug = False
     
         #Setup pygame
         pygame.init()
@@ -1479,7 +1479,8 @@ class RunPygame(object):
         game_data = {'players': [p1, p2],
                      'overlay': None,
                      'move_number': 0,
-                     'shuffle': [allow_shuffle, 3]}
+                     'shuffle': [allow_shuffle, 3],
+                     'debug': False}
         store_data = {'waiting': False,
                       'waiting_start': 0,
                       'shuffle_count': 0,
@@ -1489,7 +1490,8 @@ class RunPygame(object):
                       'new_game': False,
                       'continue': False,
                       'exit': False,
-                      'instructions': False}
+                      'instructions': False,
+                      'debug_hover': None}
         block_data = {'id': None,
                       'object': None,
                       'taken': False}
@@ -1659,7 +1661,6 @@ class RunPygame(object):
                 if not (key[pygame.K_UP] or key[pygame.K_DOWN]):
                     held_keys['angle'] = 0
                     
-                #elif time_current < time.time() - time_update:
                 elif update_yet:
                     self.draw_data.angle += angle_increment * held_keys['angle']
                     game_flags['recalculate'] = True
@@ -1669,7 +1670,6 @@ class RunPygame(object):
                 if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
                     held_keys['size'] = 0
                     
-                #elif time_current < time.time() - time_update:
                 elif update_yet:
                     length_exp = (max(length_increment,
                                      (pow(self.draw_data.length, length_exponential)
@@ -1679,7 +1679,7 @@ class RunPygame(object):
                     game_flags['recalculate'] = True
                     store_data['temp_fps'] = self.fps_smooth
 
-                
+                    
             
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
@@ -1776,15 +1776,15 @@ class RunPygame(object):
             
             self._draw_score(game_flags['winner'])
             
-            if debug:
-                self._draw_debug(block_data)
             
+            if game_data['debug']:
+                self._draw_debug(block_data)
             
             if game_data['overlay']:
             
                 store_data['temp_fps'] = self.fps_main
                 header_padding = self.padding[1] * 5
-                subheader_padding = self.padding[1] * 2
+                subheader_padding = self.padding[1] * 3
                 self.blit_list = []
                 self.rect_list = []
                 self.screen.blit(self.backdrop, (0, 0))
@@ -1856,7 +1856,7 @@ class RunPygame(object):
                         if not player:
                             current_height += self.padding[1]
                         else:
-                            current_height += header_padding
+                            current_height += subheader_padding
                         
                         #Calculate mouse info
                         if selected_option is not None:
@@ -1887,7 +1887,7 @@ class RunPygame(object):
                                                      current_height)
                                                      
                     selected_option, options_size = option_data
-                    current_height += header_padding + options_size
+                    current_height += subheader_padding + options_size
                     
                     #Calculate mouse info
                     store_data['shuffle_hover'] = None
@@ -1897,9 +1897,39 @@ class RunPygame(object):
                             allow_shuffle = not selected_option
                             if not game_data['move_number']:
                                 game_data['shuffle'][0] = allow_shuffle
+                    
+                    #Toggle hidden debug option with ctrl+alt+d
+                    if not (not key[pygame.K_d] 
+                            or not (key[pygame.K_RCTRL] or key[pygame.K_LCTRL])
+                            or not (key[pygame.K_RALT] or key[pygame.K_LALT])):
+                            
+                        store_data['debug_hover']
+                        options = ['Yes', 'No']
+                        params = []
+                        for i in range(len(options)):
+                            params.append([not i and game_data['debug'] or i and not game_data['debug'],
+                                           not i and game_data['debug'] or i and not game_data['debug'],
+                                           not i and store_data['debug_hover'] or i and not store_data['debug_hover'] and store_data['debug_hover'] is not None])
+                        
+                        option_data = self._draw_options('Show debug info? ',
+                                                         ['Yes', 'No'],
+                                                         params,
+                                                         screen_width_offset,
+                                                         current_height)
+                                                 
+                        selected_option, options_size = option_data
+                        
+                        store_data['debug_hover'] = None
+                        if selected_option is not None:
+                            store_data['debug_hover'] = not selected_option
+                            if game_flags['clicked']:
+                                game_data['debug'] = not selected_option
+                        
+                        current_height += subheader_padding + options_size
+                    
                                                   
-                    box_spacing = header_padding + self.font_md_size if game_data['move_number'] else self.padding[1] + self.font_lg_size
-
+                    box_spacing = (header_padding + self.padding[1]) if game_data['move_number'] else (self.padding[1] + self.font_lg_size)
+                    
                     box_height = [current_height]
                     
                     #Tell to restart game
@@ -1909,7 +1939,7 @@ class RunPygame(object):
                         restart_text = self.font_md.render(restart_message, 1, BLACK)
                         restart_size = restart_text.get_rect()[2:]
                         self.blit_list.append((restart_text, ((self.width - restart_size[0]) / 2, current_height)))
-                        current_height += subheader_padding + restart_size[1]
+                        current_height += header_padding
                         
                         #Continue button
                         if self._pygame_button('Continue', 
@@ -1962,7 +1992,7 @@ class RunPygame(object):
                         store_data['exit'] = False
                         
                 #Draw background
-                background_square = (screen_width_offset, header_padding, self.overlay_width, current_height + self.padding[1])
+                background_square = (screen_width_offset, header_padding, self.overlay_width, current_height + self.padding[1] * 2)
                 pygame.draw.rect(self.screen, WHITE, background_square, 0)
                 pygame.draw.rect(self.screen, BLACK, background_square, 1)
                 
