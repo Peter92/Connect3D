@@ -24,6 +24,13 @@ SELECTION = {'Default': [WHITE, LIGHTGREY],
              'Hover': [None, BLACK],
              'Waiting': [None, BLACK],
              'Selected': [GREEN, None]}
+
+def mix_colour(*args):
+    mixed_colour = [0, 0, 0]
+    num_colours = len(args)
+    for colour in range(3):
+        mixed_colour[colour] = sum(i[colour] for i in args) / num_colours
+    return mixed_colour
     
 class Connect3D(object):
     """Class to store and use the Connect3D game data.
@@ -249,7 +256,9 @@ class Connect3D(object):
         return new_c3d_instance
         
     def _old_play(self, p1=False, p2=bot_difficulty_default, shuffle_after=default_shuffle_count, end_when_no_points_left=False):
-        """Start or continue a game.
+        """NEEDS TO BE UPDATED TO WORK
+        
+        Start or continue a game.
         If using computer players, there is a minimum time delay to avoid it instantly making moves.
         
         Parameters:
@@ -349,11 +358,8 @@ class Connect3D(object):
                 shuffle_count = 0
                 print "Grid was flipped!"
 
-    def play(self, p1=False, p2=bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False,
-             screen_width=640, screen_height=860,
-             default_length=200, default_angle=24):
-
-        RunPygame(self).play(p1, p2, allow_shuffle, end_when_no_points_left)
+    def play(self, p1=False, p2=bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
+        self = RunPygame(self).play(p1, p2, allow_shuffle, end_when_no_points_left)
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -967,10 +973,10 @@ class SimpleC3DAI(object):
             move1_text = ['Blocking opposing player', 'Gaining points'][::order_of_importance]
             
             
-            
             #Predict if other player is trying to trick the AI
             #(or try trick the player if the setup is right)
-            if random.uniform(0, 100) > chance_of_not_noticing:
+            #Quite an advanced tactic so chance of not noticing is increased
+            if min(random.uniform(0, 100), random.uniform(0, 100)) > chance_of_not_noticing:
             
                 matching_ids = [defaultdict(int) for i in range(3)]
                 for k, v in point_based_move.iteritems():
@@ -1047,296 +1053,7 @@ class SimpleC3DAI(object):
         
         return next_move
 
-class MouseToBlockID(object):
-    """Converts mouse coordinates into the games block ID.
-
-    The first part is to calculate which level has been clicked, which
-    then allows the code to treat the coordinates as level 0. From this
-    point, it finds the matching chunks from the new coordinates which
-    results in two possible blocks, then it calculates how they are
-    conected (highest one is to the left if even+odd, otherwise it's to
-    the right), and from that, it's possible to figure out which block
-    the cursor is over.
-    
-    A chunk is a cell of a 2D grid overlaid over the isometric grid.
-    Each block is split into 4 chunks, and each chunk overlaps two
-    blocks.
-    """
-    
-    def __init__(self, x, y, grid_main):
-        self.x = x
-        self.y = y
-        self.y_original = y
-        self.grid_main = grid_main
-        self._to_chunk()
-
-    def _to_chunk(self):
-        """Calculate which chunk the coordinate is on."""
-        y_offset = self.grid_main.size_y * 2 + self.grid_main.padding
-        self.y_coordinate = int((self.grid_main.centre - self.y) / y_offset)
-        self.y += y_offset * self.y_coordinate
         
-        chunk_size_x = self.grid_main.size_x / self.grid_main.segments
-        chunk_size_y = self.grid_main.size_y / self.grid_main.segments
-        self.height = int((self.grid_main.centre - self.y) / chunk_size_y)
-        self.width = int((self.x + self.grid_main.size_x + chunk_size_x) / chunk_size_x) -1
-        
-
-    def find_x_slice(self):
-        """Find block IDs that are on the x segment"""
-        past_middle = self.width >= self.grid_main.segments
-        
-        values = []
-        if self.width >= self.grid_main.segments:
-        
-            count = 0
-            while True:
-                n_multiple = self.grid_main.segments * count
-                width_addition = self.width - self.grid_main.segments + count
-                if width_addition < self.grid_main.segments:
-                    values.append(n_multiple + width_addition)
-                    if width_addition < self.grid_main.segments - 1:
-                        values.append(n_multiple + width_addition + 1)
-                        
-                else:
-                    break
-                count += 1
-        
-        elif self.width >= 0:
-        
-            starting_point = self.grid_main.segments - self.width
-            values.append((starting_point - 1) * self.grid_main.segments)
-
-            width_addition = 0
-            for i in range(starting_point, self.grid_main.segments):
-                n_multiple = self.grid_main.segments * i
-                values.append(n_multiple + width_addition)
-                if 0 < i < self.grid_main.segments:
-                    values.append(n_multiple + width_addition + 1)
-                else:
-                    break
-                width_addition += 1
-        
-            
-        return values
-
-    def find_y_slice(self):
-        """Find block IDs that are on the y segment"""
-        
-        height = self.height
-        past_middle = height >= self.grid_main.segments
-        if past_middle:
-            height = 2 * self.grid_main.segments - 1 - height
-            
-        values = []
-        count = 0
-        while True:
-            n_multiple = count * self.grid_main.segments
-            height_addition = height - count
-            if height_addition >= 0:
-                values.append(n_multiple + height_addition)
-                if height_addition >= 1:
-                    values.append(n_multiple + height_addition - 1)
-            else:
-                break
-            count += 1
-            
-        if past_middle:
-            values = [pow(self.grid_main.segments, 2) - i - 1 for i in values]
-            
-        return values
-
-    def find_overlap(self):
-        """Combine the block IDs to find the 1 or 2 matching ones."""
-        
-        x_blocks = self.find_x_slice()
-        y_blocks = self.find_y_slice()
-        if self.y_coordinate >= self.grid_main.segments:
-            return []
-        return [i for i in x_blocks if i in y_blocks]
-
-    def find_block_coordinates(self):
-        """Calculate the coordinates of the block IDs, or create a fake
-        block if one is off the edge.
-        Returns a list sorted by height.
-
-        If only one value is given for which blocks are in the chunk, that
-        means the player is on the edge of the board. By creating a fake
-        block off the side of the board, it allows the coorect maths to be
-        done without any modification.
-        """
-        matching_blocks = self.find_overlap()
-        if not matching_blocks:
-            return None
-        
-        matching_coordinates = {i: self.grid_main.relative_coordinates[i]
-                                for i in matching_blocks}
-
-        #Create new value to handle 'off edge' cases
-        if len(matching_coordinates.keys()) == 1:
-            
-            single_coordinate = matching_coordinates[matching_blocks[0]]
-            
-            new_location = (0, -self.grid_main.centre)
-
-            #Workaround to handle the cases in the upper half
-            if self.height < self.grid_main.segments:
-                
-                top_row_right = range(1, self.grid_main.segments)
-                top_row_left = [i * self.grid_main.segments
-                                for i in range(1, self.grid_main.segments)]
-                if self.width >= self.grid_main.segments:
-                    top_row_right.append(0)
-                else:
-                    top_row_left.append(0)
-
-                
-                if matching_blocks[0] in top_row_left:
-                    new_location = (single_coordinate[0] - self.grid_main.x_offset,
-                                    single_coordinate[1] + self.grid_main.y_offset)
-
-                elif matching_blocks[0] in top_row_right:
-                    new_location = (single_coordinate[0] + self.grid_main.x_offset,
-                                    single_coordinate[1] + self.grid_main.y_offset)
-            
-            matching_coordinates[-1] = new_location
-            
-        return sorted(matching_coordinates.items(), key=lambda (k, v): v[1])
-
-    
-    def calculate(self, debug=0):
-        """Calculate which block ID the coordinates are on.
-        This calculates the coordinates of the line between the two
-        blocks, then depending on if a calculation results in a positive
-        or negative number, it's possible to detect which block it falls
-        on.
-
-        By returning the (x1, y1) and (x2, y2) values, they can be linked
-        with turtle to see it how it works under the hood.
-        """
-        all_blocks = self.find_block_coordinates()
-        if all_blocks is None:
-            return None
-        
-        highest_block = all_blocks[1][1]
-        line_direction = self.width % 2 == self.height % 2
-        if self.grid_main.segments % 2:
-            line_direction = not line_direction
-        #print self.width, self.height
-        
-        x1, y1 = (highest_block[0],
-                  highest_block[1] - self.grid_main.y_offset * 2)
-        negative = int('-1'[not line_direction:])
-        x2, y2 = (x1 + self.grid_main.x_offset * negative,
-                  y1 + self.grid_main.y_offset)
-
-        sign = (x2 - x1) * (self.y - y1) - (y2 - y1) * (self.x - x1)
-        sign *= negative
-
-        #Return particular things when debugging
-        if debug == 1:
-            return (x1, y1), (x2, y2)
-        if debug == 2:
-            return sign
-
-        selected_block = all_blocks[sign > 0][0]
-
-        #If extra block was added, it was -1, so it is invalid
-        if selected_block < 0:
-            return None
-
-        
-        return selected_block + self.y_coordinate * pow(self.grid_main.segments, 2)
-
-
-class CoordinateConvert(object):
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.centre = (self.width / 2, self.height / 2)
-
-    def to_pygame(self, x, y):
-        x = x - self.centre[0]
-        y = self.centre[1] - y
-        return (x, y)
-
-    def to_canvas(self, x, y):
-        x = x + self.centre[0]
-        y = self.centre[1] - y
-        return (x, y)
-
-class GridDrawData(object):
-    """Hold the relevant data for the grid, to allow it to be shown."""
-    
-    def __init__(self, length, segments, angle, padding=5):
-        self.length = length
-        self.segments = segments
-        self.angle = angle
-        self.padding = padding
-        self._calculate()
-
-    def _calculate(self):
-        """Perform the main calculations on the values in __init__.
-        This allows updating any of the values, such as the isometric
-        angle, without creating a new class."""
-        
-        self.size_x = self.length * math.cos(math.radians(self.angle))
-        self.size_y = self.length * math.sin(math.radians(self.angle))
-        self.x_offset = self.size_x / self.segments
-        self.y_offset = self.size_y / self.segments
-        self.chunk_height = self.size_y * 2 + self.padding
-        
-        self.centre = (self.chunk_height / 2) * self.segments - self.padding / 2
-        self.size_x_sm = self.size_x / self.segments
-        self.size_y_sm = self.size_y / self.segments
-
-        #self.segments_sq = pow(self.segments, 2)
-        #self.grid_data_len = pow(self.segments, 3)
-        #self.grid_data_range = range(self.grid_data_len)
-
-        
-        self.length_small = self.length / self.segments
-        
-        self.relative_coordinates = []
-        position = (0, self.centre)
-        for j in range(self.segments):
-            checkpoint = position
-            for i in range(self.segments):
-                self.relative_coordinates.append(position)
-                position = (position[0] + self.x_offset,
-                            position[1] - self.y_offset)
-            position = (checkpoint[0] - self.x_offset,
-                        checkpoint[1] - self.y_offset)
-
-
-
-        #Absolute coordinates for pygame
-        chunk_coordinates = [(0, - i * self.chunk_height) for i in range(self.segments)]
-
-        self.line_coordinates = [((self.size_x, self.centre - self.size_y),
-                                  (self.size_x, self.size_y - self.centre)),
-                                 ((-self.size_x, self.centre - self.size_y),
-                                  (-self.size_x, self.size_y - self.centre)),
-                                 ((0, self.centre - self.size_y * 2),
-                                  (0, -self.centre))]
-
-        for i in range(self.segments):
-
-            chunk_height = -i * self.chunk_height
-
-            self.line_coordinates += [((self.size_x, self.centre + chunk_height - self.size_y),
-                                       (0, self.centre + chunk_height - self.size_y * 2)),
-                                      ((-self.size_x, self.centre + chunk_height - self.size_y),
-                                       (0, self.centre + chunk_height - self.size_y * 2))]
-
-            for coordinate in self.relative_coordinates:
-                
-                start = (coordinate[0], chunk_height + coordinate[1])
-                self.line_coordinates += [(start,
-                                           (start[0] + self.size_x_sm, start[1] - self.size_y_sm)),
-                                          (start,
-                                           (start[0] - self.size_x_sm, start[1] - self.size_y_sm))]
-
 def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default, _debug=False):
     """Preset parameters for the bot difficulty levels.
     
@@ -1400,13 +1117,131 @@ def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default, _debug=
     
     return get_bot_difficulty(_default, _debug)
 
+
+class CoordinateConvert(object):
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.centre = (self.width / 2, self.height / 2)
+
+    def to_pygame(self, x, y):
+        x = x - self.centre[0]
+        y = self.centre[1] - y
+        return (x, y)
+
+    def to_canvas(self, x, y):
+        x = x + self.centre[0]
+        y = self.centre[1] - y
+        return (x, y)
+
+class GridDrawData(object):
+    """Hold the relevant data for the grid, to allow it to be shown."""
     
+    def __init__(self, length, segments, angle, padding=5):
+        self.length = length
+        self.segments = segments
+        self.angle = angle
+        self.padding = padding
+        self._calculate()
+
+    def game_to_block_index(self, gx, gy):
+        """Return index of block at the game coordinates gx, gy, or None if
+        there is no block at those coordinates."""
+        gy += self.centre
+        z = int(gy // self.chunk_height)
+        gy -= z * self.chunk_height
+        
+        dx = gx / self.size_x_sm
+        dy = gy / self.size_y_sm
+        x = int((dy - dx) // 2)
+        y = int((dy + dx) // 2)
+        
+        n = self.segments
+        if 0 <= x < n and 0 <= y < n and 0 <= z < n:
+            return n ** 3 - 1 - (x + n * (y + n * z))
+        else:
+            return None
+            
+    def block_index(self, x, y, z):
+        """Return the block index corresponding to the block at x, y, z, or
+        None if there is no block at those coordinates.
+
+        """
+        n = self.segments
+        if 0 <= x < n and 0 <= y < n and 0 <= z < n:
+            return n ** 3 - 1 - (x + n * (y + n * z))
+        else:
+            return None
+
+
+    def _calculate(self):
+        """Perform the main calculations on the values in __init__.
+        This allows updating any of the values, such as the isometric
+        angle, without creating a new class."""
+        
+        self.size_x = self.length * math.cos(math.radians(self.angle))
+        self.size_y = self.length * math.sin(math.radians(self.angle))
+        self.x_offset = self.size_x / self.segments
+        self.y_offset = self.size_y / self.segments
+        self.chunk_height = self.size_y * 2 + self.padding
+        
+        self.centre = (self.chunk_height / 2) * self.segments - self.padding / 2
+        self.size_x_sm = self.size_x / self.segments
+        self.size_y_sm = self.size_y / self.segments
+
+        #self.segments_sq = pow(self.segments, 2)
+        #self.grid_data_len = pow(self.segments, 3)
+        #self.grid_data_range = range(self.grid_data_len)
+
+        
+        self.length_small = self.length / self.segments
+        
+        self.relative_coordinates = []
+        position = (0, self.centre)
+        for j in range(self.segments):
+            checkpoint = position
+            for i in range(self.segments):
+                self.relative_coordinates.append(position)
+                position = (position[0] + self.x_offset,
+                            position[1] - self.y_offset)
+            position = (checkpoint[0] - self.x_offset,
+                        checkpoint[1] - self.y_offset)
+
+
+
+        #Absolute coordinates for pygame
+        chunk_coordinates = [(0, - i * self.chunk_height) for i in range(self.segments)]
+
+        self.line_coordinates = [((self.size_x, self.centre - self.size_y),
+                                  (self.size_x, self.size_y - self.centre)),
+                                 ((-self.size_x, self.centre - self.size_y),
+                                  (-self.size_x, self.size_y - self.centre)),
+                                 ((0, self.centre - self.size_y * 2),
+                                  (0, -self.centre))]
+
+        for i in range(self.segments):
+
+            chunk_height = -i * self.chunk_height
+
+            self.line_coordinates += [((self.size_x, self.centre + chunk_height - self.size_y),
+                                       (0, self.centre + chunk_height - self.size_y * 2)),
+                                      ((-self.size_x, self.centre + chunk_height - self.size_y),
+                                       (0, self.centre + chunk_height - self.size_y * 2))]
+
+            for coordinate in self.relative_coordinates:
+                
+                start = (coordinate[0], chunk_height + coordinate[1])
+                self.line_coordinates += [(start,
+                                           (start[0] + self.size_x_sm, start[1] - self.size_y_sm)),
+                                          (start,
+                                           (start[0] - self.size_x_sm, start[1] - self.size_y_sm))]
+
+
 class RunPygame(object):
     
     overlay_marker = '/'
     player_colours = [GREEN, LIGHTBLUE]
     empty_colour = YELLOW
-    move_colour = RED
     fps_idle = 15
     fps_main = 30
     fps_smooth = 120
@@ -1433,9 +1268,6 @@ class RunPygame(object):
         self._next_player()
     
     def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
-    
-        allow_shuffle = False
-        debug = False
     
         #Setup pygame
         pygame.init()
@@ -1465,8 +1297,12 @@ class RunPygame(object):
                                  self.angle,
                                  padding = self.angle / self.C3DObject.segments)
         
+        #NOTE: These will all be cleaned up later, the grouping isn't great currently
+        
         held_keys = {'angle': 0,
                      'size': 0}
+                     
+        #Store one off instructions to wipe later
         game_flags = {'clicked': False,
                       'mouse_used': True,
                       'quit': False,
@@ -1476,11 +1312,15 @@ class RunPygame(object):
                       'flipped': False,
                       'disable_background_clicks': False,
                       'winner': None}
+                      
+        #Store information that shouldn't be wiped
         game_data = {'players': [p1, p2],
-                     'overlay': None,
+                     'overlay': 'options',
                      'move_number': 0,
                      'shuffle': [allow_shuffle, 3],
                      'debug': False}
+        
+        #Store temporary things to update
         store_data = {'waiting': False,
                       'waiting_start': 0,
                       'shuffle_count': 0,
@@ -1493,11 +1333,10 @@ class RunPygame(object):
                       'instructions': False,
                       'debug_hover': None}
         block_data = {'id': None,
-                      'object': None,
                       'taken': False}
         tick_data = {'old': 0,
                      'new': 0,
-                     'update': 4,
+                     'update': 4, #How many ticks between each held key command
                      'total': 0}
                       
         mouse_data = pygame.mouse.get_pos()
@@ -1520,7 +1359,7 @@ class RunPygame(object):
             tick_data['new'] = pygame.time.get_ticks()
            
             if game_flags['quit']:
-                return
+                return self.C3DObject
             
             #Check if no spaces are left
             if '' not in self.C3DObject.grid_data:
@@ -1598,7 +1437,7 @@ class RunPygame(object):
             #Run the AI
             ai_turn = None
             if game_data['players'][self.player] is not False:
-                if not game_flags['disable_background_clicks']:
+                if not game_flags['disable_background_clicks'] and game_flags['winner'] is None:
                     ai_turn = SimpleC3DAI(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
                 
             
@@ -1649,7 +1488,7 @@ class RunPygame(object):
                     game_flags['mouse_used'] = True
             
             
-            #Get held down key presses
+            #Get held down key presses, but only update if enough ticks have passed
             key = pygame.key.get_pressed()
             update_yet = False
             if tick_data['new'] - tick_data['old'] > tick_data['update']:
@@ -1686,8 +1525,7 @@ class RunPygame(object):
                 game_flags['recalculate'] = True
                 mouse_data = pygame.mouse.get_pos()
                 x, y = self.to_pygame(*mouse_data)
-                block_data['object'] = MouseToBlockID(x, y, self.draw_data)
-                block_data['id'] = block_data['object'].calculate()
+                block_data['id'] = self.draw_data.game_to_block_index(x, y)
                 block_data['taken'] = True
                 if block_data['id'] is not None and ai_turn is None:
                     block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
@@ -1740,29 +1578,35 @@ class RunPygame(object):
                               coordinate]
 
                     #Player has mouse over square
+                    block_colour = None
                     if self.C3DObject.grid_data[i] == self.overlay_marker:
-                        block_colour = self.empty_colour
+                    
+                        
+                        if game_data['players'][self.player] is False:
+                            block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
                     
                     #Square is taken by a player
                     else:
                         j = self.C3DObject.grid_data[i]
-                        mix_colour = None
                         
-                        #Square is being moved into, mix with red
+                        #Square is being moved into, mix with red and white
+                        mix = False
                         if isinstance(j, int) and j > 1:
                             j = 9 - j
                             moving_block = square
-                            mix_colour = (255, 128, 128)
+                            mix = True
                             
                         block_colour = self.player_colours[j]
-                        if mix_colour is not None:
-                            block_colour = [(block_colour[i] + mix_colour[i]) / 2 for i in range(3)]
                         
-                    pygame.draw.polygon(self.screen,
-                                        block_colour,
-                                        [self.to_canvas(*corner)
-                                         for corner in square],
-                                        0)
+                        if mix:
+                            block_colour = mix_colour(block_colour, GREY)
+                    
+                    if block_colour is not None:
+                        pygame.draw.polygon(self.screen,
+                                            block_colour,
+                                            [self.to_canvas(*corner)
+                                             for corner in square],
+                                            0)
                                         
                 
             #Draw grid
@@ -1778,7 +1622,7 @@ class RunPygame(object):
             
             
             if game_data['debug']:
-                self._draw_debug(block_data)
+                self._draw_debug(block_data['id'])
             
             if game_data['overlay']:
             
@@ -2159,46 +2003,19 @@ class RunPygame(object):
         self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.padding[0], self.padding[1] + p_size_top[1]))
 
     
-    def _draw_debug(self, block_data):
+    def _draw_debug(self, block_id=None):
         """Show the debug information."""
     
         mouse_data = pygame.mouse.get_pos()
         x, y = self.to_pygame(*mouse_data)
-        
-        debug_coordinates = block_data['object'].calculate(debug=1)
-        if debug_coordinates is not None:
-            if all(i is not None for i in debug_coordinates):
-                pygame.draw.aaline(self.screen,
-                            RED,
-                            pygame.mouse.get_pos(),
-                            self.to_canvas(*debug_coordinates[1]),
-                            1)
-                pygame.draw.line(self.screen,
-                            RED,
-                            self.to_canvas(*debug_coordinates[0]),
-                            self.to_canvas(*debug_coordinates[1]),
-                            2)
-    
-        possible_blocks = block_data['object'].find_overlap()
-        
-        y_mult = str(block_data['object'].y_coordinate * self.C3DObject.segments_squared)
-        if y_mult[0] != '-':
-            y_mult = '+{}'.format(y_mult)
+            
         info = ['DEBUG INFO',
                 'FPS: {}'.format(int(round(self.clock.get_fps(), 0))),
                 'Segments: {}'.format(self.C3DObject.segments),
                 'Angle: {}'.format(self.draw_data.angle),
                 'Side length: {}'.format(self.draw_data.length),
                 'Coordinates: {}'.format(mouse_data),
-                'Chunk: {}'.format((block_data['object'].width,
-                                    block_data['object'].height,
-                                    block_data['object'].y_coordinate)),
-                'X Slice: {}'.format(block_data['object'].find_x_slice()),
-                'Y Slice: {}'.format(block_data['object'].find_y_slice()),
-                'Possible blocks: {} {}'.format(possible_blocks, y_mult),
-                'Block weight: {}'.format(block_data['object'].calculate(debug=2)),
-                'Block ID: {}'.format(block_data['object'].calculate())]
-                
+                'Block ID: {}'.format(block_id)]
                 
         font_render = [self.font_sm.render(self._format_output(i), 1, BLACK) for i in info]
         font_size = [i.get_rect()[2:] for i in font_render]
@@ -2206,7 +2023,6 @@ class RunPygame(object):
             message_height = self.height - sum(j[1] for j in font_size[i:])
             self.screen.blit(font_render[i], (0, message_height))
             
-        
         
         #Format the AI text output
         ai_message = []
@@ -2227,7 +2043,5 @@ class RunPygame(object):
 def round_up(x):
     return int(x) + bool(x % 1)
 
-
 if __name__ == '__main__':
-    C3D = Connect3D()
-    C3D.play()
+    Connect3D().play()
