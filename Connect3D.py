@@ -1267,6 +1267,14 @@ class RunPygame(object):
     def _previous_player(self):
         self._next_player()
     
+    def _set_fps(self, fps):
+        try:
+            if self._fps is None or self._fps < fps:
+                self._fps = fps
+        except AttributeError:
+            self._fps = None
+            self._set_fps(fps)
+    
     def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
     
         #Setup pygame
@@ -1275,6 +1283,8 @@ class RunPygame(object):
         self.clock = pygame.time.Clock()
         pygame.display.set_caption('Connect 3D')
         background_colour = BACKGROUND
+        
+        #Backdrop for options
         self.backdrop = pygame.Surface((self.width, self.height))
         self.backdrop.set_alpha(196)
         self.backdrop.fill(WHITE)
@@ -1353,9 +1363,10 @@ class RunPygame(object):
         time_current = time.time()
         time_update = 0.01
         
+        self._set_fps(self.fps_main)
         while True:
                     
-            self.clock.tick(store_data['temp_fps'] or self.fps_idle)
+            self.clock.tick(self._fps or self.fps_idle)
             tick_data['new'] = pygame.time.get_ticks()
            
             if game_flags['quit']:
@@ -1374,7 +1385,7 @@ class RunPygame(object):
                 game_flags['clicked'] = False
                 game_flags['flipped'] = False
                 game_flags['disable_background_clicks'] = False
-                store_data['temp_fps'] = None
+                self._fps = None
             tick_data['total'] += 1
             
             
@@ -1387,6 +1398,7 @@ class RunPygame(object):
                 self.C3DObject = Connect3D(self.C3DObject.segments)
                 game_flags['hover'] = None
                 game_flags['recalculate'] = True
+                game_flags['redraw'] = True
                 store_data['waiting'] = False
                 game_flags['winner'] = None
                 
@@ -1404,7 +1416,6 @@ class RunPygame(object):
                 game_flags['disable_background_clicks'] = True
                 
                 if store_data['waiting_start'] < time.time():
-                    game_flags['recalculate'] = True
                 
                     attempted_move = self.C3DObject.make_move(store_data['waiting'][1], store_data['waiting'][0])
                     
@@ -1431,7 +1442,7 @@ class RunPygame(object):
                         self.C3DObject.grid_data[store_data['waiting'][0]] = 9 - store_data['waiting'][1]
                     except TypeError:
                         print store_data['waiting'], ai_turn
-                        raise TypeError('trying to get to the bottom of this')
+                        raise TypeError('something is wrong, trying to get to the bottom of this')
                     
                 
             #Run the AI
@@ -1503,7 +1514,7 @@ class RunPygame(object):
                 elif update_yet:
                     self.draw_data.angle += angle_increment * held_keys['angle']
                     game_flags['recalculate'] = True
-                    store_data['temp_fps'] = self.fps_smooth
+                    self._set_fps(self.fps_smooth)
             
             if held_keys['size']:
                 if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
@@ -1516,13 +1527,15 @@ class RunPygame(object):
                                   * length_multiplier)
                     self.draw_data.length += length_exp * held_keys['size']
                     game_flags['recalculate'] = True
-                    store_data['temp_fps'] = self.fps_smooth
+                    self._set_fps(self.fps_smooth)
 
                     
             
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
-                game_flags['recalculate'] = True
+            
+                self._set_fps(self.fps_main)
+                    
                 mouse_data = pygame.mouse.get_pos()
                 x, y = self.to_pygame(*mouse_data)
                 block_data['id'] = self.draw_data.game_to_block_index(x, y)
@@ -1548,8 +1561,7 @@ class RunPygame(object):
             #Recalculate the data to draw the grid
             if game_flags['recalculate']:
             
-                if not store_data['temp_fps']:
-                    store_data['temp_fps'] = self.fps_main
+                self._set_fps(self.fps_main)
                     
                 self.draw_data.segments = self.C3DObject.segments
                 
@@ -1626,7 +1638,7 @@ class RunPygame(object):
             
             if game_data['overlay']:
             
-                store_data['temp_fps'] = self.fps_main
+                self._set_fps(self.fps_main)
                 header_padding = self.padding[1] * 5
                 subheader_padding = self.padding[1] * 3
                 self.blit_list = []
