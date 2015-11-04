@@ -1137,17 +1137,19 @@ class CoordinateConvert(object):
 class GridDrawData(object):
     """Hold the relevant data for the grid, to allow it to be shown."""
     
-    def __init__(self, length, segments, angle, padding=5):
+    def __init__(self, length, segments, angle, padding=5, offset=(0, 0)):
         self.length = length
         self.segments = segments
         self.angle = angle
         self.padding = padding
+        self.offset = list(offset)
         self._calculate()
 
     def game_to_block_index(self, gx, gy):
         """Return index of block at the game coordinates gx, gy, or None if
         there is no block at those coordinates."""
-        gy += self.centre
+        gx -= self.offset[0]
+        gy -= self.offset[1] - self.centre
         z = int(gy // self.chunk_height)
         gy -= z * self.chunk_height
         
@@ -1188,11 +1190,6 @@ class GridDrawData(object):
         self.centre = (self.chunk_height / 2) * self.segments - self.padding / 2
         self.size_x_sm = self.size_x / self.segments
         self.size_y_sm = self.size_y / self.segments
-
-        #self.segments_sq = pow(self.segments, 2)
-        #self.grid_data_len = pow(self.segments, 3)
-        #self.grid_data_range = range(self.grid_data_len)
-
         
         self.length_small = self.length / self.segments
         
@@ -1210,27 +1207,27 @@ class GridDrawData(object):
 
 
         #Absolute coordinates for pygame
-        chunk_coordinates = [(0, - i * self.chunk_height) for i in range(self.segments)]
+        chunk_coordinates = [(self.offset[0], self.offset[1] - i * self.chunk_height) for i in range(self.segments)]
 
-        self.line_coordinates = [((self.size_x, self.centre - self.size_y),
-                                  (self.size_x, self.size_y - self.centre)),
-                                 ((-self.size_x, self.centre - self.size_y),
-                                  (-self.size_x, self.size_y - self.centre)),
-                                 ((0, self.centre - self.size_y * 2),
-                                  (0, -self.centre))]
+        self.line_coordinates = [((self.offset[0] + self.size_x, self.offset[1] + self.centre - self.size_y),
+                                  (self.offset[0] + self.size_x, self.offset[1] + self.size_y - self.centre)),
+                                 ((self.offset[0] - self.size_x, self.offset[1] + self.centre - self.size_y),
+                                  (self.offset[0] - self.size_x, self.offset[1] + self.size_y - self.centre)),
+                                 ((self.offset[0], self.offset[1] + self.centre - self.size_y * 2),
+                                  (self.offset[0], self.offset[1] - self.centre))]
 
         for i in range(self.segments):
 
             chunk_height = -i * self.chunk_height
 
-            self.line_coordinates += [((self.size_x, self.centre + chunk_height - self.size_y),
-                                       (0, self.centre + chunk_height - self.size_y * 2)),
-                                      ((-self.size_x, self.centre + chunk_height - self.size_y),
-                                       (0, self.centre + chunk_height - self.size_y * 2))]
+            self.line_coordinates += [((self.offset[0] + self.size_x, self.offset[1] + self.centre + chunk_height - self.size_y),
+                                       (self.offset[0], self.offset[1] + self.centre + chunk_height - self.size_y * 2)),
+                                      ((self.offset[0] - self.size_x, self.offset[1] + self.centre + chunk_height - self.size_y),
+                                       (self.offset[0], self.offset[1] + self.centre + chunk_height - self.size_y * 2))]
 
             for coordinate in self.relative_coordinates:
                 
-                start = (coordinate[0], chunk_height + coordinate[1])
+                start = (self.offset[0] + coordinate[0], self.offset[1] + chunk_height + coordinate[1])
                 self.line_coordinates += [(start,
                                            (start[0] + self.size_x_sm, start[1] - self.size_y_sm)),
                                           (start,
@@ -1282,7 +1279,7 @@ class RunPygame(object):
         self.backdrop.set_alpha(196)
         self.backdrop.fill(WHITE)
     
-    def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
+    def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False, offset=(0, 0)):
     
         #Setup pygame
         pygame.init()
@@ -1307,12 +1304,15 @@ class RunPygame(object):
         self.draw_data = GridDrawData(self.length,
                                  self.C3DObject.segments,
                                  self.angle,
-                                 padding = self.angle / self.C3DObject.segments)
+                                 padding=self.angle / self.C3DObject.segments,
+                                 offset=offset)
         
         #NOTE: These will all be cleaned up later, the grouping isn't great currently
         
         held_keys = {'angle': 0,
-                     'size': 0}
+                     'size': 0,
+                     'x': 0,
+                     'y': 0}
                      
         #Store one off instructions to wipe later
         game_flags = {'clicked': False,
@@ -1330,7 +1330,8 @@ class RunPygame(object):
                      'overlay': 'options',
                      'move_number': 0,
                      'shuffle': [allow_shuffle, 3],
-                     'debug': False}
+                     'debug': False,
+                     'offset': offset}
         
         #Store temporary things to update
         store_data = {'waiting': False,
@@ -1343,7 +1344,11 @@ class RunPygame(object):
                       'continue': False,
                       'exit': False,
                       'instructions': False,
-                      'debug_hover': None}
+                      'debug_hover': None,
+                      'resize_start_x': 0,
+                      'resize_start_y': 0,
+                      'resize_end_x': 0,
+                      'resize_end_y': 0}
         block_data = {'id': None,
                       'taken': False}
         tick_data = {'old': 0,
@@ -1362,7 +1367,10 @@ class RunPygame(object):
         length_exponential = 1.1
         length_increment = 0.5
         length_multiplier = 0.01
-        time_current = time.time()
+        offset_increment = 0.025 #Speed of movement
+        offset_exponential = 0.75 #Determins ratio of speed to length
+        offset_smooth = 8 #How fast it hits full speed
+        offset_falloff = 2.5 #How fast it stops
         time_update = 0.01
         
         self._set_fps(self.fps_main)
@@ -1370,6 +1378,7 @@ class RunPygame(object):
                     
             self.clock.tick(self._fps or self.fps_idle)
             tick_data['new'] = pygame.time.get_ticks()
+            frame_time = time.time()
            
             if game_flags['quit']:
                 return self.C3DObject
@@ -1417,7 +1426,7 @@ class RunPygame(object):
             if store_data['waiting']:                    
                 game_flags['disable_background_clicks'] = True
                 
-                if store_data['waiting_start'] < time.time():
+                if store_data['waiting_start'] < frame_time:
                 
                     attempted_move = self.C3DObject.make_move(store_data['waiting'][1], store_data['waiting'][0])
                     
@@ -1444,7 +1453,7 @@ class RunPygame(object):
                         self.C3DObject.grid_data[store_data['waiting'][0]] = 9 - store_data['waiting'][1]
                     except TypeError:
                         print store_data['waiting'], ai_turn
-                        raise TypeError('something is wrong, trying to get to the bottom of this')
+                        raise TypeError('something went wrong, trying to find the cause of this')
                     
                 
             #Run the AI
@@ -1494,7 +1503,23 @@ class RunPygame(object):
 
                     if event.key == pygame.K_LEFT:
                         held_keys['size'] = -1
+                    
+                    if not game_data['overlay']:
+                        if event.key == pygame.K_w:
+                            held_keys['y'] = 1
+                            store_data['resize_start_y'] = frame_time
+                        
+                        if event.key == pygame.K_s:
+                            held_keys['y'] = -1sd
+                            store_data['resize_start_y'] = frame_time
+                            
+                        if event.key == pygame.K_a:
+                            held_keys['x'] = -1
+                            store_data['resize_start_x'] = frame_time
 
+                        if event.key == pygame.K_d:
+                            held_keys['x'] = 1
+                            store_data['resize_start_x'] = frame_time
                         
                 #Get mouse clicks
                 if event.type == pygame.MOUSEBUTTONDOWN:
@@ -1511,7 +1536,8 @@ class RunPygame(object):
             if tick_data['new'] - tick_data['old'] > tick_data['update']:
                 update_yet = True
                 tick_data['old'] = pygame.time.get_ticks()
-                
+            
+            changed_something = False
             if held_keys['angle']:
                 
                 if not (key[pygame.K_UP] or key[pygame.K_DOWN]):
@@ -1519,8 +1545,7 @@ class RunPygame(object):
                     
                 elif update_yet:
                     self.draw_data.angle += angle_increment * held_keys['angle']
-                    game_flags['recalculate'] = True
-                    self._set_fps(self.fps_smooth)
+                    changed_something = True
             
             if held_keys['size']:
                 if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
@@ -1532,10 +1557,53 @@ class RunPygame(object):
                                       - 1 / length_increment))
                                   * length_multiplier)
                     self.draw_data.length += length_exp * held_keys['size']
-                    game_flags['recalculate'] = True
-                    self._set_fps(self.fps_smooth)
+                    changed_something = True
 
                     
+            if not game_data['overlay']:
+                
+                #Move the grid on the screen
+                if held_keys['x']:
+                    if not (key[pygame.K_a] or key[pygame.K_d]):
+                        store_data['resize_end_x'] = frame_time * held_keys['x']
+                        held_keys['x'] = 0
+                    
+                    elif update_yet:
+                        time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_x']) * offset_smooth
+                        self.draw_data.offset[0] += offset_increment * held_keys['x'] * pow(self.draw_data.length, offset_exponential) * time_difference
+                        changed_something = True
+                
+                if held_keys['y']:
+                    if not (key[pygame.K_w] or key[pygame.K_s]):
+                        store_data['resize_end_y'] = frame_time * held_keys['y']
+                        held_keys['y'] = 0
+                    
+                    elif update_yet:
+                        time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_y']) * offset_smooth
+                        self.draw_data.offset[1] += offset_increment * held_keys['y'] * pow(self.draw_data.length, offset_exponential) * time_difference
+                        changed_something = True
+                
+                #Slowly stop movement when keys are no longer being held
+                x_difference = frame_time - abs(store_data['resize_end_x'])
+                y_difference = frame_time - abs(store_data['resize_end_y'])
+                
+                if not held_keys['x'] and  x_difference < 1.0 / offset_falloff and update_yet:
+                    negative_multiple = int('-1'[store_data['resize_end_x'] > 0:])
+                    come_to_stop = min(1, 1.0 / offset_falloff - x_difference)
+                    self.draw_data.offset[0] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
+                    changed_something = True
+                    
+                if not held_keys['y'] and  y_difference < 1.0 / offset_falloff and update_yet:
+                    negative_multiple = int('-1'[store_data['resize_end_y'] > 0:])
+                    come_to_stop = min(1, 1.0 / offset_falloff - y_difference)
+                    self.draw_data.offset[1] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
+                    changed_something = True
+                    
+                    
+            if changed_something:
+                game_flags['recalculate'] = True
+                self._set_fps(self.fps_smooth)
+            
             
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
@@ -1554,7 +1622,7 @@ class RunPygame(object):
             if not game_flags['disable_background_clicks']:
                 if game_flags['clicked'] == 1 and not block_data['taken'] or ai_turn is not None:
                     store_data['waiting'] = (ai_turn if ai_turn is not None else block_data['id'], self.player)
-                    store_data['waiting_start'] = time.time() + moving_wait
+                    store_data['waiting_start'] = frame_time + moving_wait
                     self._next_player()
                    
                    
@@ -1586,7 +1654,8 @@ class RunPygame(object):
                 
                     chunk = i / self.C3DObject.segments_squared
                     coordinate = list(self.draw_data.relative_coordinates[i % self.C3DObject.segments_squared])
-                    coordinate[1] -= chunk * self.draw_data.chunk_height
+                    coordinate[0] += self.draw_data.offset[0]
+                    coordinate[1] += self.draw_data.offset[1] - chunk * self.draw_data.chunk_height
                     
                     square = [coordinate,
                               (coordinate[0] + self.draw_data.size_x_sm,
@@ -2033,6 +2102,7 @@ class RunPygame(object):
                 'FPS: {}'.format(int(round(self.clock.get_fps(), 0))),
                 'Segments: {}'.format(self.C3DObject.segments),
                 'Angle: {}'.format(self.draw_data.angle),
+                'Offset: {}'.format(map(int, self.draw_data.offset)),
                 'Side length: {}'.format(int(self.draw_data.length)),
                 'Coordinates: {}'.format(mouse_data),
                 'Block ID: {}'.format(block_id)]
