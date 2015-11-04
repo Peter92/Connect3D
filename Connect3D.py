@@ -1257,9 +1257,6 @@ class RunPygame(object):
         self.angle = default_angle
         self.player = int(not self.C3DObject.current_player)
         
-        self.convert = CoordinateConvert(self.width, self.height)
-        self.to_pygame = self.convert.to_pygame
-        self.to_canvas = self.convert.to_canvas
         
     def _next_player(self):
         self.player = int(not self.player)
@@ -1275,19 +1272,24 @@ class RunPygame(object):
             self._fps = None
             self._set_fps(fps)
     
+    def _update_window_size(self):
+        self.convert = CoordinateConvert(self.width, self.height)
+        self.to_pygame = self.convert.to_pygame
+        self.to_canvas = self.convert.to_canvas
+        
+        self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+        self.backdrop = pygame.Surface((self.width, self.height))
+        self.backdrop.set_alpha(196)
+        self.backdrop.fill(WHITE)
+    
     def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
     
         #Setup pygame
         pygame.init()
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        self._update_window_size()
         self.clock = pygame.time.Clock()
         pygame.display.set_caption('Connect 3D')
         background_colour = BACKGROUND
-        
-        #Backdrop for options
-        self.backdrop = pygame.Surface((self.width, self.height))
-        self.backdrop.set_alpha(196)
-        self.backdrop.fill(WHITE)
         
         #Import the font
         self.font_file = 'Miss Monkey.ttf'
@@ -1457,6 +1459,10 @@ class RunPygame(object):
 
                 if event.type == pygame.QUIT:
                     return
+                
+                if event.type == pygame.VIDEORESIZE:
+                    self.width, self.height = event.dict['size']
+                    self._update_window_size()
 
                 #Get single key presses
                 if event.type == pygame.KEYDOWN:
@@ -1564,8 +1570,10 @@ class RunPygame(object):
                 self._set_fps(self.fps_main)
                     
                 self.draw_data.segments = self.C3DObject.segments
-                
-                self.draw_data.length = float(max((pow(1 / length_increment, 2) * self.draw_data.segments), self.draw_data.length, 2))
+                self.draw_data.length = max(pow(1 / length_increment, 2) * self.draw_data.segments, 
+                                            self.draw_data.length, 
+                                            2)
+                self.draw_data.length = float(min(2000 * self.draw_data.segments, self.draw_data.length))
                 self.draw_data.angle = float(max(angle_increment, min(89, self.draw_data.angle, angle_max)))
                 
                 self.draw_data._calculate()
@@ -2025,7 +2033,7 @@ class RunPygame(object):
                 'FPS: {}'.format(int(round(self.clock.get_fps(), 0))),
                 'Segments: {}'.format(self.C3DObject.segments),
                 'Angle: {}'.format(self.draw_data.angle),
-                'Side length: {}'.format(self.draw_data.length),
+                'Side length: {}'.format(int(self.draw_data.length)),
                 'Coordinates: {}'.format(mouse_data),
                 'Block ID: {}'.format(block_id)]
                 
