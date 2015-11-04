@@ -1238,6 +1238,7 @@ class RunPygame(object):
     
     overlay_marker = '/'
     player_colours = [GREEN, LIGHTBLUE]
+    PLAYER_NAMES = ['1', '2']
     empty_colour = YELLOW
     fps_idle = 15
     fps_main = 30
@@ -1369,8 +1370,8 @@ class RunPygame(object):
         length_multiplier = 0.01
         offset_increment = 0.025 #Speed of movement
         offset_exponential = 0.75 #Determins ratio of speed to length
-        offset_smooth = 8 #How fast it hits full speed
-        offset_falloff = 2.5 #How fast it stops
+        offset_smooth = 4 #How fast it hits full speed
+        offset_falloff = 2 #How fast it stops
         time_update = 0.01
         
         self._set_fps(self.fps_main)
@@ -1492,34 +1493,68 @@ class RunPygame(object):
                         self.C3DObject.segments = max(1, self.C3DObject.segments)
                         game_flags['reset'] = True
 
-                    if event.key == pygame.K_UP:
+                    if event.key == pygame.K_w:
                         held_keys['angle'] = 1
 
-                    if event.key == pygame.K_DOWN:
+                    if event.key == pygame.K_s:
                         held_keys['angle'] = -1
 
-                    if event.key == pygame.K_RIGHT:
+                    if event.key == pygame.K_d:
                         held_keys['size'] = 1
 
-                    if event.key == pygame.K_LEFT:
+                    if event.key == pygame.K_a:
                         held_keys['size'] = -1
                     
-                    if not game_data['overlay']:
-                        if event.key == pygame.K_w:
-                            held_keys['y'] = 1
-                            store_data['resize_start_y'] = frame_time
+                    if event.key == pygame.K_c:
+                        self.draw_data.offset = list(offset)
+                        store_data['resize_end_x'] = store_data['resize_end_y'] = 0
                         
-                        if event.key == pygame.K_s:
-                            held_keys['y'] = -1sd
-                            store_data['resize_start_y'] = frame_time
-                            
-                        if event.key == pygame.K_a:
-                            held_keys['x'] = -1
-                            store_data['resize_start_x'] = frame_time
+                    if event.key == pygame.K_UP:
+                        held_keys['y'] = 1
+                        store_data['resize_start_y'] = frame_time
+                    
+                    if event.key == pygame.K_DOWN:
+                        held_keys['y'] = -1
+                        store_data['resize_start_y'] = frame_time
+                        
+                    if event.key == pygame.K_LEFT:
+                        held_keys['x'] = -1
+                        store_data['resize_start_x'] = frame_time
 
-                        if event.key == pygame.K_d:
-                            held_keys['x'] = 1
-                            store_data['resize_start_x'] = frame_time
+                    if event.key == pygame.K_RIGHT:
+                        held_keys['x'] = 1
+                        store_data['resize_start_x'] = frame_time
+                
+                #Fix opposite buttons overriding each other
+                if event.type == pygame.KEYUP:
+                    key = pygame.key.get_pressed()
+                    if event.key == pygame.K_w and key[pygame.K_s]:
+                        held_keys['angle'] = -1
+
+                    if event.key == pygame.K_s and key[pygame.K_w]:
+                        held_keys['angle'] = 1
+
+                    if event.key == pygame.K_d and key[pygame.K_a]:
+                        held_keys['size'] = -1
+
+                    if event.key == pygame.K_a and key[pygame.K_d]:
+                        held_keys['size'] = 1
+                        
+                    if event.key == pygame.K_UP and key[pygame.K_DOWN]:
+                        held_keys['y'] = -1
+                        store_data['resize_start_y'] = frame_time
+                    
+                    if event.key == pygame.K_DOWN and key[pygame.K_UP]:
+                        held_keys['y'] = 1
+                        store_data['resize_start_y'] = frame_time
+                        
+                    if event.key == pygame.K_LEFT and key[pygame.K_RIGHT]:
+                        held_keys['x'] = 1
+                        store_data['resize_start_x'] = frame_time
+
+                    if event.key == pygame.K_RIGHT and key[pygame.K_LEFT]:
+                        held_keys['x'] = -1
+                        store_data['resize_start_x'] = frame_time
                         
                 #Get mouse clicks
                 if event.type == pygame.MOUSEBUTTONDOWN:
@@ -1540,15 +1575,15 @@ class RunPygame(object):
             changed_something = False
             if held_keys['angle']:
                 
-                if not (key[pygame.K_UP] or key[pygame.K_DOWN]):
+                if not (key[pygame.K_w] or key[pygame.K_s]) or (key[pygame.K_w] and key[pygame.K_s]):
                     held_keys['angle'] = 0
-                    
+                
                 elif update_yet:
                     self.draw_data.angle += angle_increment * held_keys['angle']
                     changed_something = True
             
             if held_keys['size']:
-                if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]):
+                if not (key[pygame.K_a] or key[pygame.K_d]) or (key[pygame.K_a] and key[pygame.K_d]):
                     held_keys['size'] = 0
                     
                 elif update_yet:
@@ -1560,44 +1595,42 @@ class RunPygame(object):
                     changed_something = True
 
                     
-            if not game_data['overlay']:
+            #Move the grid on the screen
+            if held_keys['x']:
+                time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_x']) * offset_smooth
+                if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]) or (key[pygame.K_LEFT] and key[pygame.K_RIGHT]):
+                    store_data['resize_end_x'] = (frame_time + max(1.0 / offset_smooth, time_difference) - 1) * held_keys['x']
+                    held_keys['x'] = 0
                 
-                #Move the grid on the screen
-                if held_keys['x']:
-                    if not (key[pygame.K_a] or key[pygame.K_d]):
-                        store_data['resize_end_x'] = frame_time * held_keys['x']
-                        held_keys['x'] = 0
-                    
-                    elif update_yet:
-                        time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_x']) * offset_smooth
-                        self.draw_data.offset[0] += offset_increment * held_keys['x'] * pow(self.draw_data.length, offset_exponential) * time_difference
-                        changed_something = True
-                
-                if held_keys['y']:
-                    if not (key[pygame.K_w] or key[pygame.K_s]):
-                        store_data['resize_end_y'] = frame_time * held_keys['y']
-                        held_keys['y'] = 0
-                    
-                    elif update_yet:
-                        time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_y']) * offset_smooth
-                        self.draw_data.offset[1] += offset_increment * held_keys['y'] * pow(self.draw_data.length, offset_exponential) * time_difference
-                        changed_something = True
-                
-                #Slowly stop movement when keys are no longer being held
-                x_difference = frame_time - abs(store_data['resize_end_x'])
-                y_difference = frame_time - abs(store_data['resize_end_y'])
-                
-                if not held_keys['x'] and  x_difference < 1.0 / offset_falloff and update_yet:
-                    negative_multiple = int('-1'[store_data['resize_end_x'] > 0:])
-                    come_to_stop = min(1, 1.0 / offset_falloff - x_difference)
-                    self.draw_data.offset[0] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
+                elif update_yet:
+                    self.draw_data.offset[0] += offset_increment * held_keys['x'] * pow(self.draw_data.length, offset_exponential) * time_difference
                     changed_something = True
-                    
-                if not held_keys['y'] and  y_difference < 1.0 / offset_falloff and update_yet:
-                    negative_multiple = int('-1'[store_data['resize_end_y'] > 0:])
-                    come_to_stop = min(1, 1.0 / offset_falloff - y_difference)
-                    self.draw_data.offset[1] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
+            
+            if held_keys['y']:
+                time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_y']) * offset_smooth
+                if not (key[pygame.K_UP] or key[pygame.K_DOWN]) or (key[pygame.K_LEFT] and key[pygame.K_RIGHT]):
+                    store_data['resize_end_y'] = (frame_time + max(1.0 / offset_smooth, time_difference) - 1) * held_keys['y']
+                    held_keys['y'] = 0
+                
+                elif update_yet:
+                    self.draw_data.offset[1] += offset_increment * held_keys['y'] * pow(self.draw_data.length, offset_exponential) * time_difference
                     changed_something = True
+            
+            #Slowly stop movement when keys are no longer being held
+            x_difference = frame_time - abs(store_data['resize_end_x'])
+            y_difference = frame_time - abs(store_data['resize_end_y'])
+            
+            if not held_keys['x'] and  x_difference < 1.0 / offset_falloff and update_yet:
+                negative_multiple = int('-1'[store_data['resize_end_x'] > 0:])
+                come_to_stop = min(1, 1.0 / offset_falloff - x_difference)
+                self.draw_data.offset[0] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
+                changed_something = True
+                
+            if not held_keys['y'] and  y_difference < 1.0 / offset_falloff and update_yet:
+                negative_multiple = int('-1'[store_data['resize_end_y'] > 0:])
+                come_to_stop = min(1, 1.0 / offset_falloff - y_difference)
+                self.draw_data.offset[1] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
+                changed_something = True
                     
                     
             if changed_something:
@@ -1714,7 +1747,7 @@ class RunPygame(object):
                 self._draw_debug(block_data['id'])
             
             if game_data['overlay']:
-            
+                
                 self._set_fps(self.fps_main)
                 header_padding = self.padding[1] * 5
                 subheader_padding = self.padding[1] * 3
@@ -1753,7 +1786,6 @@ class RunPygame(object):
                 
                 if game_data['overlay'] == 'options':
                     
-                    
                     #Player options
                     players_unsaved = [p1, p2]
                     players_original = list(game_data['players'])
@@ -1777,7 +1809,7 @@ class RunPygame(object):
                                            i == players_original[player] or players_original[player] < 0 and not i,
                                            [player, i] == player_hover])
                         
-                        option_data = self._draw_options('Player {}: '.format(player),
+                        option_data = self._draw_options('Player {}: '.format(self.PLAYER_NAMES[player]),
                                                          options,
                                                          params,
                                                          screen_width_offset,
@@ -1832,8 +1864,8 @@ class RunPygame(object):
                                 game_data['shuffle'][0] = allow_shuffle
                     
                     #Toggle hidden debug option with ctrl+alt+d
-                    if not (not key[pygame.K_d] 
-                            or not (key[pygame.K_RCTRL] or key[pygame.K_LCTRL])
+                    if not (not key[pygame.K_q] 
+                            or not (key[pygame.K_RSHIFT] or key[pygame.K_LSHIFT])
                             or not (key[pygame.K_RALT] or key[pygame.K_LALT])):
                             
                         store_data['debug_hover']
@@ -2066,8 +2098,8 @@ class RunPygame(object):
         p0_points = self.C3DObject.current_points[0]
         p1_points = self.C3DObject.current_points[1]
         
-        p0_font_top = self.font_md.render('Player 0', 1,  BLACK, self.player_colours[0])
-        p1_font_top = self.font_md.render('Player 1', 1, BLACK, self.player_colours[1])
+        p0_font_top = self.font_md.render('Player {}'.format(self.PLAYER_NAMES[0]), 1,  BLACK, self.player_colours[0])
+        p1_font_top = self.font_md.render('Player {}'.format(self.PLAYER_NAMES[1]), 1, BLACK, self.player_colours[1])
         p0_font_bottom = self.font_lg.render(point_marker * p0_points, 1,  BLACK)
         p1_font_bottom = self.font_lg.render(point_marker * p1_points, 1,  BLACK)
         
@@ -2075,12 +2107,12 @@ class RunPygame(object):
         p_size_bottom = p1_font_bottom.get_rect()[2:]
         
         if winner is None:
-            go_message = "Player {}'s turn!".format(self.player)
+            go_message = "Player {}'s turn!".format(self.PLAYER_NAMES[self.player])
         else:
             if len(winner) != 1:
                 go_message = 'The game was a draw!'
             else:
-                go_message = 'Player {} won!'.format(winner[0])
+                go_message = 'Player {} won!'.format(self.PLAYER_NAMES[winner[0]])
             
         go_font = self.font_lg.render(go_message, 1, BLACK)
         go_size = go_font.get_rect()[2:]
