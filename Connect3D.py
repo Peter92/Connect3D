@@ -358,8 +358,18 @@ class Connect3D(object):
                 shuffle_count = 0
                 print "Grid was flipped!"
 
-    def play(self, p1=False, p2=bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False):
-        self = RunPygame(self).play(p1, p2, allow_shuffle, end_when_no_points_left)
+    def play(self, p1_name='Player 1', p2_name='Player 2', 
+                   p1=False, p2=bot_difficulty_default, 
+                   p1_colour=GREEN, p2_colour=LIGHTBLUE,
+                   allow_shuffle=True, 
+                   end_when_no_points_left=False, 
+                   offset=(0, 0)):
+        self = RunPygame(self).play(p1_name=p1_name, p2_name=p2_name, 
+                                    p1_player=p1, p2_player=p2, 
+                                    p1_colour=p1_colour, p2_colour=p2_colour,
+                                    allow_shuffle=allow_shuffle, 
+                                    end_when_no_points_left=end_when_no_points_left, 
+                                    offset=offset)
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -426,19 +436,31 @@ class Connect3D(object):
     def shuffle(self, no_shuffle=None):
         """Mirror the grid in the X, Y, or Z axis."""
         
-        shuffle_methods = random.sample(range(3), random.randint(0, 2))
+        shuffle_methods = random.sample(range(3), random.randint(0, 5))
         if 0 in shuffle_methods:
-            self.grid_data = SwapGridData(self.grid_data).x()
+            self.grid_data = SwapGridData(self.grid_data).fx()
             if self.range_data is not None:
-                self.range_data = SwapGridData(self.range_data).x()
+                self.range_data = SwapGridData(self.range_data).fx()
         if 1 in shuffle_methods:
-            self.grid_data = SwapGridData(self.grid_data).y()
+            self.grid_data = SwapGridData(self.grid_data).fy()
             if self.range_data is not None:
-                self.range_data = SwapGridData(self.range_data).y()
+                self.range_data = SwapGridData(self.range_data).fy()
         if 2 in shuffle_methods:
-            self.grid_data = SwapGridData(self.grid_data).y()
+            self.grid_data = SwapGridData(self.grid_data).fz()
             if self.range_data is not None:
-                self.range_data = SwapGridData(self.range_data).y()
+                self.range_data = SwapGridData(self.range_data).fz()
+        if 3 in shuffle_methods:
+            self.grid_data = SwapGridData(self.grid_data).rx()
+            if self.range_data is not None:
+                self.range_data = SwapGridData(self.range_data).rx()
+        if 4 in shuffle_methods:
+            self.grid_data = SwapGridData(self.grid_data).ry()
+            if self.range_data is not None:
+                self.range_data = SwapGridData(self.range_data).ry()
+        if 5 in shuffle_methods:
+            self.grid_data = SwapGridData(self.grid_data).rz()
+            if self.range_data is not None:
+                self.range_data = SwapGridData(self.range_data).rz()
         self.grid_data.reverse()
         if self.range_data is not None:
             self.range_data.reverse()
@@ -669,14 +691,21 @@ class SwapGridData(object):
     """
     def __init__(self, grid_data):
         self.grid_data = list(grid_data)
-        self.segments = calculate_segments(self.grid_data)
+        self.n = calculate_segments(self.grid_data)
+        
+        self.range = range(self.n)
+        self.range_reverse = self.range[::-1]
+        self.group_split = self._group_split()
     
-    def x(self):
+    def _group_split(self):
+        return split_list(self.grid_data, pow(self.n, 2))
+    
+    def fx(self):
         """Flip on the X axis.
         
-        >>> SwapGridData(range(8)).x()
+        >>> SwapGridData(range(8)).fx()
         [1, 0, 3, 2, 5, 4, 7, 6]
-        >>> print Connect3D.from_list(SwapGridData(range(8)).x())
+        >>> print Connect3D.from_list(SwapGridData(range(8)).fx())
              ________
             / 1 / 0 /|
            /___/___/ |
@@ -688,14 +717,14 @@ class SwapGridData(object):
         | / 7 / 6|/
         |/___/___|
         """
-        return join_list(x[::-1] for x in split_list(self.grid_data, self.segments))
+        return join_list(x[::-1] for x in split_list(self.grid_data, self.n))
         
-    def y(self):
+    def fy(self):
         """Flip on the Y axis.
         
-        >>> SwapGridData(range(8)).y()
+        >>> SwapGridData(range(8)).fy()
         [2, 3, 0, 1, 6, 7, 4, 5]
-        >>> print Connect3D.from_list(SwapGridData(range(8)).y())
+        >>> print Connect3D.from_list(SwapGridData(range(8)).fy())
              ________
             / 2 / 3 /|
            /___/___/ |
@@ -707,15 +736,14 @@ class SwapGridData(object):
         | / 4 / 5|/
         |/___/___|
         """
-        group_split = split_list(self.grid_data, pow(self.segments, 2))
-        return join_list(join_list(split_list(x, self.segments)[::-1]) for x in group_split)
+        return join_list(join_list(split_list(x, self.n)[::-1]) for x in self.group_split)
         
-    def z(self):
+    def fz(self):
         """Flip on the Z axis.
         
-        >>> SwapGridData(range(8)).z()
+        >>> SwapGridData(range(8)).fz()
         [4, 5, 6, 7, 0, 1, 2, 3]
-        >>> print Connect3D.from_list(SwapGridData(range(8)).z())
+        >>> print Connect3D.from_list(SwapGridData(range(8)).fz())
              ________
             / 4 / 5 /|
            /___/___/ |
@@ -727,7 +755,128 @@ class SwapGridData(object):
         | / 2 / 3|/
         |/___/___|
         """
-        return join_list(split_list(self.grid_data, pow(self.segments, 2))[::-1])
+        return join_list(split_list(self.grid_data, pow(self.n, 2))[::-1])
+    
+    def rx(self, reverse=None):
+        """Rotate on the X axis.
+        
+        >>> SwapGridData(range(8)).rx(False)
+        [5, 1, 7, 3, 4, 0, 6, 2]
+        >>> print Connect3D.from_list(SwapGridData(range(8)).rx(False))
+             ________
+            / 5 / 1 /|
+           /___/___/ |
+          / 7 / 3 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 4 /|0 /
+        |  /___/_|_/
+        | / 6 / 2|/
+        |/___/___|
+        
+        >>> SwapGridData(range(8)).rx(True)
+        [1, 5, 3, 7, 0, 4, 2, 6]
+        >>> print Connect3D.from_list(SwapGridData(range(8)).rx(True))
+             ________
+            / 1 / 5 /|
+           /___/___/ |
+          / 3 / 7 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 0 /|4 /
+        |  /___/_|_/
+        | / 2 / 6|/
+        |/___/___|
+        """
+        n_sq = pow(self.n, 2)
+        n_start = pow(self.n, 3) - n_sq
+        
+        if reverse is None:
+            reverse = random.randint(0, 1)
+        
+        if reverse:
+            return [n_start + i + j * self.n - k * n_sq for i in self.range_reverse for j in self.range for k in self.range_reverse]
+        else:
+            return [n_start + i + j * self.n - k * n_sq for i in self.range for j in self.range for k in self.range]
+            
+    def ry(self, reverse=None):
+        """Rotate on the Y axis.
+        
+        >>> SwapGridData(range(8)).ry(False)
+        [4, 5, 0, 1, 6, 7, 2, 3]
+        >>> print Connect3D.from_list(SwapGridData(range(8)).ry(False))
+             ________
+            / 4 / 5 /|
+           /___/___/ |
+          / 0 / 1 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 6 /|7 /
+        |  /___/_|_/
+        | / 2 / 3|/
+        |/___/___|
+        
+        >>> SwapGridData(range(8)).ry(True)
+        [2, 3, 6, 7, 0, 1, 4, 5]
+        >>> print Connect3D.from_list(SwapGridData(range(8)).ry(True))
+             ________
+            / 2 / 3 /|
+           /___/___/ |
+          / 6 / 7 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 0 /|1 /
+        |  /___/_|_/
+        | / 4 / 5|/
+        |/___/___|
+        """
+        if reverse is None:
+            reverse = random.randint(0, 1)
+        
+        if reverse:
+            return join_list(j[offset:offset + self.n] for offset in [(self.n - i - 1) * self.n for i in self.range] for j in self.group_split)
+        else:
+            gs_reverse = self.group_split[::-1]
+            return join_list(j[offset:offset + self.n] for offset in [i * self.n for i in self.range] for j in gs_reverse)
+            
+    def rz(self, reverse=None):
+        """Rotate on the Z axis.
+        
+        >>> SwapGridData(range(8)).rz(False)
+        [2, 0, 3, 1, 6, 4, 7, 5]
+        >>> print Connect3D.from_list(SwapGridData(range(8)).rz(False))
+             ________
+            / 2 / 0 /|
+           /___/___/ |
+          / 3 / 1 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 6 /|4 /
+        |  /___/_|_/
+        | / 7 / 5|/
+        |/___/___|
+        
+        >>> SwapGridData(range(8)).rz(True)
+        [1, 3, 0, 2, 5, 7, 4, 6]
+        >>> print Connect3D.from_list(SwapGridData(range(8)).rz(True))
+             ________
+            / 1 / 3 /|
+           /___/___/ |
+          / 0 / 2 /  |
+         /___/___/   |
+        |   |____|___|
+        |   / 5 /|7 /
+        |  /___/_|_/
+        | / 4 / 6|/
+        |/___/___|
+        """
+        if reverse is None:
+            reverse = random.randint(0, 1)
+       
+        if reverse:
+            return [x[j][i] for x in [split_list(x, self.n) for x in self.group_split] for i in self.range_reverse for j in self.range]
+        else:
+            return [x[j][i] for x in [split_list(x, self.n)[::-1] for x in self.group_split] for i in self.range for j in self.range]
     
     def reverse(self):
         """Reverse the grid.
@@ -1089,11 +1238,14 @@ def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default, _debug=
     difficulty_level[3] = 'hard'
     difficulty_level[4] = 'extreme'
     
+    if level is False and _debug:
+        return 0
+        
     try:
         level = difficulty_level[level]
     except KeyError:
         level = str(level).lower()
-    
+        
     if level == difficulty_level[0]:
         if _debug:
             return 1
@@ -1134,14 +1286,15 @@ class CoordinateConvert(object):
         y = self.centre[1] - y
         return (x, y)
 
+        
 class GridDrawData(object):
     """Hold the relevant data for the grid, to allow it to be shown."""
     
-    def __init__(self, length, segments, angle, padding=5, offset=(0, 0)):
+    def __init__(self, length, segments, angle, PADDING_TEXT=5, offset=(0, 0)):
         self.length = length
         self.segments = segments
         self.angle = angle
-        self.padding = padding
+        self.PADDING_TEXT = PADDING_TEXT
         self.offset = list(offset)
         self._calculate()
 
@@ -1174,7 +1327,12 @@ class GridDrawData(object):
             return n ** 3 - 1 - (x + n * (y + n * z))
         else:
             return None
-
+            
+    def block_to_game(self, x, y, z):
+        """Return the game coordinates corresponding to block x, y, z."""
+        gx = (x - y) * self.size_x_sm
+        gy = (x + y) * self.size_y_sm + z * self.chunk_height - self.centre
+        return gx, gy
 
     def _calculate(self):
         """Perform the main calculations on the values in __init__.
@@ -1185,9 +1343,9 @@ class GridDrawData(object):
         self.size_y = self.length * math.sin(math.radians(self.angle))
         self.x_offset = self.size_x / self.segments
         self.y_offset = self.size_y / self.segments
-        self.chunk_height = self.size_y * 2 + self.padding
+        self.chunk_height = self.size_y * 2 + self.PADDING_TEXT
         
-        self.centre = (self.chunk_height / 2) * self.segments - self.padding / 2
+        self.centre = (self.chunk_height / 2) * self.segments - self.PADDING_TEXT / 2
         self.size_x_sm = self.size_x / self.segments
         self.size_y_sm = self.size_y / self.segments
         
@@ -1237,15 +1395,13 @@ class GridDrawData(object):
 class RunPygame(object):
     
     overlay_marker = '/'
-    player_colours = [GREEN, LIGHTBLUE]
-    PLAYER_NAMES = ['1', '2']
-    empty_colour = YELLOW
-    fps_idle = 15
-    fps_main = 30
-    fps_smooth = 120
-    padding = (5, 10)
-    overlay_width = 500
-    option_padding = 2
+    EMPTY = YELLOW
+    FPS_IDLE = 15
+    FPS_MAIN = 30
+    FPS_SMOOTH = 120
+    PADDING_TEXT = (5, 10)
+    OVERLAY_WIDTH = 500
+    PADDING_OPTIONS = 2
     
     def __init__(self, C3DObject, screen_width=640, screen_height=860, default_length=200, default_angle=24):
         self.C3DObject = C3DObject
@@ -1280,7 +1436,7 @@ class RunPygame(object):
         self.backdrop.set_alpha(196)
         self.backdrop.fill(WHITE)
     
-    def play(self, p1=False, p2=Connect3D.bot_difficulty_default, allow_shuffle=True, end_when_no_points_left=False, offset=(0, 0)):
+    def play(self, p1_name, p2_name, p1_player, p2_player, p1_colour, p2_colour, allow_shuffle, end_when_no_points_left, offset):
     
         #Setup pygame
         pygame.init()
@@ -1288,6 +1444,8 @@ class RunPygame(object):
         self.clock = pygame.time.Clock()
         pygame.display.set_caption('Connect 3D')
         background_colour = BACKGROUND
+        self.player_names = (p1_name, p2_name)
+        self.player_colours = [p1_colour, p2_colour]
         
         #Import the font
         self.font_file = 'Miss Monkey.ttf'
@@ -1305,7 +1463,7 @@ class RunPygame(object):
         self.draw_data = GridDrawData(self.length,
                                  self.C3DObject.segments,
                                  self.angle,
-                                 padding=self.angle / self.C3DObject.segments,
+                                 PADDING_TEXT=self.angle / self.C3DObject.segments,
                                  offset=offset)
         
         #NOTE: These will all be cleaned up later, the grouping isn't great currently
@@ -1327,7 +1485,7 @@ class RunPygame(object):
                       'winner': None}
                       
         #Store information that shouldn't be wiped
-        game_data = {'players': [p1, p2],
+        game_data = {'players': (p1_player, p2_player),
                      'overlay': 'options',
                      'move_number': 0,
                      'shuffle': [allow_shuffle, 3],
@@ -1338,7 +1496,7 @@ class RunPygame(object):
         store_data = {'waiting': False,
                       'waiting_start': 0,
                       'shuffle_count': 0,
-                      'temp_fps': self.fps_main,
+                      'temp_fps': self.FPS_MAIN,
                       'player_hover': None,
                       'shuffle_hover': None,
                       'new_game': False,
@@ -1364,7 +1522,7 @@ class RunPygame(object):
         
         #For controlling how the angle and length of grid update
         angle_increment = 0.25
-        angle_max = 35
+        angle_max = 40
         length_exponential = 1.1
         length_increment = 0.5
         length_multiplier = 0.01
@@ -1374,10 +1532,18 @@ class RunPygame(object):
         offset_falloff = 2 #How fast it stops
         time_update = 0.01
         
-        self._set_fps(self.fps_main)
+        self._set_fps(self.FPS_MAIN)
+        '''
+            #Check if any points are left to gain
+            points_left = True
+            if end_when_no_points_left:
+                potential_points = {self.player_symbols[j]: Connect3D.from_list([self.player_symbols[j] if i == '' else i for i in self.grid_data]).current_points for j in (0, 1)}
+                if any(self.current_points == potential_points[player] for player in (self.player_symbols[j] for j in (0, 1))):
+                    points_left = False
+                    '''
+        win_marker = False
         while True:
-                    
-            self.clock.tick(self._fps or self.fps_idle)
+            self.clock.tick(self._fps or self.FPS_IDLE)
             tick_data['new'] = pygame.time.get_ticks()
             frame_time = time.time()
            
@@ -1385,9 +1551,12 @@ class RunPygame(object):
                 return self.C3DObject
             
             #Check if no spaces are left
-            if '' not in self.C3DObject.grid_data:
-                game_flags['winner'] = self.C3DObject._get_winning_player()
-                print 'finish this'
+            if all(i in (0, 1) for i in self.C3DObject.grid_data):
+                if not win_marker:
+                    game_flags['winner'] = self.C3DObject._get_winning_player()
+                    player_difficulties = [get_bot_difficulty(i, _debug=True) for i in game_data['players']]
+                    game_data['overlay'] = 'gameend'
+                win_marker = True
         
             #Reset loop
             self.screen.fill(background_colour)
@@ -1406,7 +1575,7 @@ class RunPygame(object):
                 game_flags['reset'] = False
                 game_data['move_number'] = 0
                 game_data['shuffle'][0] = allow_shuffle
-                game_data['players'] = (p1, p2)
+                game_data['players'] = (p1_player, p2_player)
                 self.C3DObject = Connect3D(self.C3DObject.segments)
                 game_flags['hover'] = None
                 game_flags['recalculate'] = True
@@ -1508,6 +1677,8 @@ class RunPygame(object):
                     if event.key == pygame.K_c:
                         self.draw_data.offset = list(offset)
                         store_data['resize_end_x'] = store_data['resize_end_y'] = 0
+                        self.draw_data.angle = self.angle
+                        self.draw_data.length = self.length
                         
                     if event.key == pygame.K_UP:
                         held_keys['y'] = 1
@@ -1635,13 +1806,13 @@ class RunPygame(object):
                     
             if changed_something:
                 game_flags['recalculate'] = True
-                self._set_fps(self.fps_smooth)
+                self._set_fps(self.FPS_SMOOTH)
             
             
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
             
-                self._set_fps(self.fps_main)
+                self._set_fps(self.FPS_MAIN)
                     
                 mouse_data = pygame.mouse.get_pos()
                 x, y = self.to_pygame(*mouse_data)
@@ -1668,7 +1839,7 @@ class RunPygame(object):
             #Recalculate the data to draw the grid
             if game_flags['recalculate']:
             
-                self._set_fps(self.fps_main)
+                self._set_fps(self.FPS_MAIN)
                     
                 self.draw_data.segments = self.C3DObject.segments
                 self.draw_data.length = max(pow(1 / length_increment, 2) * self.draw_data.segments, 
@@ -1698,12 +1869,11 @@ class RunPygame(object):
                               (coordinate[0] - self.draw_data.size_x_sm,
                                coordinate[1] - self.draw_data.size_y_sm),
                               coordinate]
-
+                  
                     #Player has mouse over square
                     block_colour = None
                     if self.C3DObject.grid_data[i] == self.overlay_marker:
                     
-                        
                         if game_data['players'][self.player] is False:
                             block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
                     
@@ -1740,28 +1910,34 @@ class RunPygame(object):
                                    1)
             
             
-            self._draw_score(game_flags['winner'])
+            self._draw_score(game_flags['winner'], store_data['waiting'])
             
             
             if game_data['debug']:
-                self._draw_debug(block_data['id'])
+                self._draw_debug(block_data['id'], held_keys)
             
             if game_data['overlay']:
                 
-                self._set_fps(self.fps_main)
-                header_padding = self.padding[1] * 5
-                subheader_padding = self.padding[1] * 3
+                self._set_fps(self.FPS_MAIN)
+                header_PADDING_TEXT = self.PADDING_TEXT[1] * 5
+                subheader_PADDING_TEXT = self.PADDING_TEXT[1] * 3
                 self.blit_list = []
                 self.rect_list = []
                 self.screen.blit(self.backdrop, (0, 0))
-                screen_width_offset = (self.width - self.overlay_width) / 2
+                screen_width_offset = (self.width - self.OVERLAY_WIDTH) / 2
                 
-                current_height = header_padding + self.padding[1]
+                current_height = header_PADDING_TEXT + self.PADDING_TEXT[1]
                 
                 #Set page titles
                 if game_data['overlay'] == 'instructions':
                     title_message = 'Instructions/About'
                     subtitle_message = ''
+                elif game_data['overlay'] == 'gameend':
+                    title_message = 'Game Over'
+                    if game_flags['winner'] is not None and len(game_flags['winner']) == 1:
+                        subtitle_message = '{} was the winner!'.format(self.player_names[game_flags['winner'][0]])
+                    else:
+                        subtitle_message = 'It was a draw!'
                 elif game_data['move_number'] + bool(store_data['waiting']) and game_data['overlay'] == 'options':
                     title_message = 'Options'
                     subtitle_message = ''
@@ -1771,23 +1947,23 @@ class RunPygame(object):
                     
                 title_text = self.font_lg.render(title_message, 1, BLACK)
                 title_size = title_text.get_rect()[2:]
-                self.blit_list.append((title_text, (self.padding[0] + screen_width_offset, current_height)))
+                self.blit_list.append((title_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
                 
-                current_height += self.padding[1] + title_size[1]
+                current_height += self.PADDING_TEXT[1] + title_size[1]
                 
                 subtitle_text = self.font_md.render(subtitle_message, 1, BLACK)
                 subtitle_size = subtitle_text.get_rect()[2:]
-                self.blit_list.append((subtitle_text, (self.padding[0] + screen_width_offset, current_height)))
+                self.blit_list.append((subtitle_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
                 
                 current_height += subtitle_size[1]
                 if subtitle_message:
-                    current_height += header_padding
+                    current_height += header_PADDING_TEXT
                     
                 
                 if game_data['overlay'] == 'options':
                     
                     #Player options
-                    players_unsaved = [p1, p2]
+                    players_unsaved = [p1_player, p2_player]
                     players_original = list(game_data['players'])
                     player_hover = store_data['player_hover']
                     store_data['player_hover'] = None
@@ -1809,7 +1985,7 @@ class RunPygame(object):
                                            i == players_original[player] or players_original[player] < 0 and not i,
                                            [player, i] == player_hover])
                         
-                        option_data = self._draw_options('Player {}: '.format(self.PLAYER_NAMES[player]),
+                        option_data = self._draw_options('{}: '.format(self.player_names[player]),
                                                          options,
                                                          params,
                                                          screen_width_offset,
@@ -1819,9 +1995,9 @@ class RunPygame(object):
                         
                         current_height += options_size
                         if not player:
-                            current_height += self.padding[1]
+                            current_height += self.PADDING_TEXT[1]
                         else:
-                            current_height += subheader_padding
+                            current_height += subheader_PADDING_TEXT
                         
                         #Calculate mouse info
                         if selected_option is not None:
@@ -1831,11 +2007,11 @@ class RunPygame(object):
                             store_data['player_hover'] = [player, selected_option]
                             if game_flags['clicked']:
                                 if not player:
-                                    p1 = player_set
+                                    p1_player = player_set
                                 else:
-                                    p2 = player_set
+                                    p2_player = player_set
                                 if not game_data['move_number']:
-                                    game_data['players'] = (p1, p2)  
+                                    game_data['players'] = (p1_player, p2_player)  
                                  
                     
                     #Ask whether to flip the grid
@@ -1852,7 +2028,7 @@ class RunPygame(object):
                                                      current_height)
                                                      
                     selected_option, options_size = option_data
-                    current_height += subheader_padding + options_size
+                    current_height += subheader_PADDING_TEXT + options_size
                     
                     #Calculate mouse info
                     store_data['shuffle_hover'] = None
@@ -1890,10 +2066,10 @@ class RunPygame(object):
                             if game_flags['clicked']:
                                 game_data['debug'] = not selected_option
                         
-                        current_height += subheader_padding + options_size
+                        current_height += subheader_PADDING_TEXT + options_size
                     
                                                   
-                    box_spacing = (header_padding + self.padding[1]) if game_data['move_number'] else (self.padding[1] + self.font_lg_size)
+                    box_spacing = (header_PADDING_TEXT + self.PADDING_TEXT[1]) if game_data['move_number'] else (self.PADDING_TEXT[1] + self.font_lg_size)
                     
                     box_height = [current_height]
                     
@@ -1904,7 +2080,7 @@ class RunPygame(object):
                         restart_text = self.font_md.render(restart_message, 1, BLACK)
                         restart_size = restart_text.get_rect()[2:]
                         self.blit_list.append((restart_text, ((self.width - restart_size[0]) / 2, current_height)))
-                        current_height += header_padding
+                        current_height += header_PADDING_TEXT
                         
                         #Continue button
                         if self._pygame_button('Continue', 
@@ -1957,7 +2133,7 @@ class RunPygame(object):
                         store_data['exit'] = False
                         
                 #Draw background
-                background_square = (screen_width_offset, header_padding, self.overlay_width, current_height + self.padding[1] * 2)
+                background_square = (screen_width_offset, header_PADDING_TEXT, self.OVERLAY_WIDTH, current_height + self.PADDING_TEXT[1] * 2)
                 pygame.draw.rect(self.screen, WHITE, background_square, 0)
                 pygame.draw.rect(self.screen, BLACK, background_square, 1)
                 
@@ -1990,10 +2166,10 @@ class RunPygame(object):
         text_x += centre_offset
         
         
-        text_square = (text_x - self.option_padding * (multiplier + 1),
-                       current_height - self.option_padding * multiplier,
-                       text_size[0] + self.option_padding * (2 * multiplier + 2),
-                       text_size[1] + self.option_padding * (2 * multiplier - 1))
+        text_square = (text_x - self.PADDING_OPTIONS * (multiplier + 1),
+                       current_height - self.PADDING_OPTIONS * multiplier,
+                       text_size[0] + self.PADDING_OPTIONS * (2 * multiplier + 2),
+                       text_size[1] + self.PADDING_OPTIONS * (2 * multiplier - 1))
     
         self.blit_list.append((text_object, (text_x, current_height)))
         
@@ -2034,7 +2210,7 @@ class RunPygame(object):
         """
         message_text = self.font_md.render(message, 1, BLACK)
         message_size = message_text.get_rect()[2:]
-        self.blit_list.append((message_text, (self.padding[0] + screen_width_offset, current_height)))
+        self.blit_list.append((message_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
         
         option_text = [self.font_md.render(i, 1, BLACK) for i in options]
         option_size = [i.get_rect()[2:] for i in option_text]
@@ -2042,13 +2218,13 @@ class RunPygame(object):
     
         for i in range(len(options)):
             width_offset = (sum(j[0] + 2 for j in option_size[:i])
-                            + self.padding[0] * (i + 1) #gap between the start
+                            + self.PADDING_TEXT[0] * (i + 1) #gap between the start
                             + message_size[0] + screen_width_offset)
 
-            option_square = (width_offset - self.option_padding,
-                             current_height - self.option_padding,
-                             option_size[i][0] + self.option_padding * 2,
-                             option_size[i][1] + self.option_padding)
+            option_square = (width_offset - self.PADDING_OPTIONS,
+                             current_height - self.PADDING_OPTIONS,
+                             option_size[i][0] + self.PADDING_OPTIONS * 2,
+                             option_size[i][1] + self.PADDING_OPTIONS)
             option_square_list.append(option_square)
             
             
@@ -2090,7 +2266,7 @@ class RunPygame(object):
             text = text.replace(i, ')')
         return text
     
-    def _draw_score(self, winner):
+    def _draw_score(self, winner, moving=False):
         """Draw the title."""
         
         #Format scores
@@ -2098,8 +2274,8 @@ class RunPygame(object):
         p0_points = self.C3DObject.current_points[0]
         p1_points = self.C3DObject.current_points[1]
         
-        p0_font_top = self.font_md.render('Player {}'.format(self.PLAYER_NAMES[0]), 1,  BLACK, self.player_colours[0])
-        p1_font_top = self.font_md.render('Player {}'.format(self.PLAYER_NAMES[1]), 1, BLACK, self.player_colours[1])
+        p0_font_top = self.font_md.render('{}'.format(self.player_names[0]), 1,  BLACK, self.player_colours[0])
+        p1_font_top = self.font_md.render('{}'.format(self.player_names[1]), 1, BLACK, self.player_colours[1])
         p0_font_bottom = self.font_lg.render(point_marker * p0_points, 1,  BLACK)
         p1_font_bottom = self.font_lg.render(point_marker * p1_points, 1,  BLACK)
         
@@ -2107,24 +2283,27 @@ class RunPygame(object):
         p_size_bottom = p1_font_bottom.get_rect()[2:]
         
         if winner is None:
-            go_message = "Player {}'s turn!".format(self.PLAYER_NAMES[self.player])
+            if moving:
+                go_message = '{} is moving!'.format(self.player_names[moving[1]])
+            else:
+                go_message = "{}'s turn!".format(self.player_names[self.player])
         else:
             if len(winner) != 1:
                 go_message = 'The game was a draw!'
             else:
-                go_message = 'Player {} won!'.format(self.PLAYER_NAMES[winner[0]])
+                go_message = '{} won!'.format(self.player_names[winner[0]])
             
         go_font = self.font_lg.render(go_message, 1, BLACK)
         go_size = go_font.get_rect()[2:]
         
-        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.padding[1] * 3))
-        self.screen.blit(p0_font_top, (self.padding[0], self.padding[1]))
-        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.padding[0], self.padding[1]))
-        self.screen.blit(p0_font_bottom, (self.padding[0], self.padding[1] + p_size_top[1]))
-        self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.padding[0], self.padding[1] + p_size_top[1]))
+        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.PADDING_TEXT[1] * 3))
+        self.screen.blit(p0_font_top, (self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+        self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
+        self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
 
     
-    def _draw_debug(self, block_id=None):
+    def _draw_debug(self, block_id=None, held_keys=None):
         """Show the debug information."""
     
         mouse_data = pygame.mouse.get_pos()
@@ -2137,7 +2316,8 @@ class RunPygame(object):
                 'Offset: {}'.format(map(int, self.draw_data.offset)),
                 'Side length: {}'.format(int(self.draw_data.length)),
                 'Coordinates: {}'.format(mouse_data),
-                'Block ID: {}'.format(block_id)]
+                'Block ID: {}'.format(block_id),
+                'Keys: {}'.format(held_keys)]
                 
         font_render = [self.font_sm.render(self._format_output(i), 1, BLACK) for i in info]
         font_size = [i.get_rect()[2:] for i in font_render]
