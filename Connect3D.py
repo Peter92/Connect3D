@@ -363,7 +363,7 @@ class Connect3D(object):
                    p1_colour=GREEN, p2_colour=LIGHTBLUE,
                    allow_shuffle=True, 
                    end_when_no_points_left=False, 
-                   offset=(0, 0)):
+                   offset=(0, -25)):
         self = RunPygame(self).play(p1_name=p1_name, p2_name=p2_name, 
                                     p1_player=p1, p2_player=p2, 
                                     p1_colour=p1_colour, p2_colour=p2_colour,
@@ -436,7 +436,7 @@ class Connect3D(object):
     def shuffle(self, no_shuffle=None):
         """Mirror the grid in the X, Y, or Z axis."""
         
-        shuffle_methods = random.sample(range(3), random.randint(0, 5))
+        shuffle_methods = random.sample(range(6), random.randint(0, 5))
         if 0 in shuffle_methods:
             self.grid_data = SwapGridData(self.grid_data).fx()
             if self.range_data is not None:
@@ -450,17 +450,20 @@ class Connect3D(object):
             if self.range_data is not None:
                 self.range_data = SwapGridData(self.range_data).fz()
         if 3 in shuffle_methods:
-            self.grid_data = SwapGridData(self.grid_data).rx()
+            reverse = random.randint(0, 1)
+            self.grid_data = SwapGridData(self.grid_data).rx(reverse)
             if self.range_data is not None:
-                self.range_data = SwapGridData(self.range_data).rx()
+                self.range_data = SwapGridData(self.range_data).rx(reverse)
         if 4 in shuffle_methods:
-            self.grid_data = SwapGridData(self.grid_data).ry()
+            reverse = random.randint(0, 1)
+            self.grid_data = SwapGridData(self.grid_data).ry(reverse)
             if self.range_data is not None:
-                self.range_data = SwapGridData(self.range_data).ry()
+                self.range_data = SwapGridData(self.range_data).ry(reverse)
         if 5 in shuffle_methods:
-            self.grid_data = SwapGridData(self.grid_data).rz()
+            reverse = random.randint(0, 1)
+            self.grid_data = SwapGridData(self.grid_data).rz(reverse)
             if self.range_data is not None:
-                self.range_data = SwapGridData(self.range_data).rz()
+                self.range_data = SwapGridData(self.range_data).rz(reverse)
         self.grid_data.reverse()
         if self.range_data is not None:
             self.range_data.reverse()
@@ -795,9 +798,9 @@ class SwapGridData(object):
             reverse = random.randint(0, 1)
         
         if reverse:
-            return [n_start + i + j * self.n - k * n_sq for i in self.range_reverse for j in self.range for k in self.range_reverse]
+            return [self.grid_data[n_start + i + j * self.n - k * n_sq] for i in self.range_reverse for j in self.range for k in self.range_reverse]
         else:
-            return [n_start + i + j * self.n - k * n_sq for i in self.range for j in self.range for k in self.range]
+            return [self.grid_data[n_start + i + j * self.n - k * n_sq] for i in self.range for j in self.range for k in self.range]
             
     def ry(self, reverse=None):
         """Rotate on the Y axis.
@@ -832,7 +835,6 @@ class SwapGridData(object):
         """
         if reverse is None:
             reverse = random.randint(0, 1)
-        
         if reverse:
             return join_list(j[offset:offset + self.n] for offset in [(self.n - i - 1) * self.n for i in self.range] for j in self.group_split)
         else:
@@ -870,9 +872,10 @@ class SwapGridData(object):
         | / 4 / 6|/
         |/___/___|
         """
+        
         if reverse is None:
             reverse = random.randint(0, 1)
-       
+            
         if reverse:
             return [x[j][i] for x in [split_list(x, self.n) for x in self.group_split] for i in self.range_reverse for j in self.range]
         else:
@@ -1564,7 +1567,6 @@ class RunPygame(object):
                 game_flags['recalculate'] = False
                 game_flags['mouse_used'] = False
                 game_flags['clicked'] = False
-                game_flags['flipped'] = False
                 game_flags['disable_background_clicks'] = False
                 self._fps = None
             tick_data['total'] += 1
@@ -1582,7 +1584,6 @@ class RunPygame(object):
                 game_flags['redraw'] = True
                 store_data['waiting'] = False
                 game_flags['winner'] = None
-                
                 
             if game_flags['hover'] is not None:
                 if self.C3DObject.grid_data[game_flags['hover']] == self.overlay_marker:
@@ -1661,7 +1662,19 @@ class RunPygame(object):
                         self.C3DObject.segments -= 1
                         self.C3DObject.segments = max(1, self.C3DObject.segments)
                         game_flags['reset'] = True
-
+                    
+                    #Manually flip the grid
+                    if event.key == pygame.K_f:
+                        if game_data['debug']:
+                            if store_data['waiting']:
+                                old_move_index = self.C3DObject.range_data[store_data['waiting'][0]]
+                            store_data['shuffle_count'] = 0
+                            self.C3DObject.shuffle()
+                            game_flags['flipped'] = True
+                            if store_data['waiting']:
+                                store_data['waiting'][0] = self.C3DObject.range_data.index(old_move_index)
+                    
+                    #Resize the grid
                     if event.key == pygame.K_w:
                         held_keys['angle'] = 1
 
@@ -1674,12 +1687,14 @@ class RunPygame(object):
                     if event.key == pygame.K_a:
                         held_keys['size'] = -1
                     
+                    #Reset the grid
                     if event.key == pygame.K_c:
                         self.draw_data.offset = list(offset)
                         store_data['resize_end_x'] = store_data['resize_end_y'] = 0
                         self.draw_data.angle = self.angle
                         self.draw_data.length = self.length
-                        
+                    
+                    #Move the grid
                     if event.key == pygame.K_UP:
                         held_keys['y'] = 1
                         store_data['resize_start_y'] = frame_time
@@ -1696,7 +1711,7 @@ class RunPygame(object):
                         held_keys['x'] = 1
                         store_data['resize_start_x'] = frame_time
                 
-                #Fix opposite buttons overriding each other
+                #Fix for opposite buttons overriding each other
                 if event.type == pygame.KEYUP:
                     key = pygame.key.get_pressed()
                     if event.key == pygame.K_w and key[pygame.K_s]:
@@ -1825,7 +1840,7 @@ class RunPygame(object):
             #If mouse was clicked
             if not game_flags['disable_background_clicks']:
                 if game_flags['clicked'] == 1 and not block_data['taken'] or ai_turn is not None:
-                    store_data['waiting'] = (ai_turn if ai_turn is not None else block_data['id'], self.player)
+                    store_data['waiting'] = [ai_turn if ai_turn is not None else block_data['id'], self.player]
                     store_data['waiting_start'] = frame_time + moving_wait
                     self._next_player()
                    
@@ -1887,7 +1902,7 @@ class RunPygame(object):
                             j = 9 - j
                             moving_block = square
                             mix = True
-                            
+                        
                         block_colour = self.player_colours[j]
                         
                         if mix:
@@ -1910,7 +1925,7 @@ class RunPygame(object):
                                    1)
             
             
-            self._draw_score(game_flags['winner'], store_data['waiting'])
+            self._draw_score(game_flags['winner'], moving=store_data['waiting'], flipped=game_flags['flipped'])
             
             
             if game_data['debug']:
@@ -2266,7 +2281,7 @@ class RunPygame(object):
             text = text.replace(i, ')')
         return text
     
-    def _draw_score(self, winner, moving=False):
+    def _draw_score(self, winner, moving=False, flipped=False):
         """Draw the title."""
         
         #Format scores
@@ -2296,12 +2311,21 @@ class RunPygame(object):
         go_font = self.font_lg.render(go_message, 1, BLACK)
         go_size = go_font.get_rect()[2:]
         
+        
+        
         self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.PADDING_TEXT[1] * 3))
         self.screen.blit(p0_font_top, (self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
         self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
         self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
         self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
 
+        if flipped:
+            flipped_message = 'Grid was flipped!'
+            flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
+            flipped_size = flipped_font.get_rect()[2:]
+            self.screen.blit(flipped_font,
+                             ((self.width - flipped_size[0]) / 2,
+                              self.PADDING_TEXT[1] * 3 + go_size[1]))
     
     def _draw_debug(self, block_id=None, held_keys=None):
         """Show the debug information."""
