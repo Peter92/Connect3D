@@ -14,12 +14,8 @@ LIGHTGREY = (200, 200, 200)
 GREY = (128, 128, 128)
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
-RED = (255, 0, 0)
 GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
-CYAN = (0, 255, 255)
-MAGENTA = (255, 0, 255)
 SELECTION = {'Default': [WHITE, LIGHTGREY],
              'Hover': [None, BLACK],
              'Waiting': [None, BLACK],
@@ -256,7 +252,7 @@ class Connect3D(object):
         return new_c3d_instance
         
     def _old_play(self, p1=False, p2=bot_difficulty_default, shuffle_after=default_shuffle_count, end_when_no_points_left=False):
-        """NEEDS TO BE UPDATED TO WORK
+        """NEEDS TO BE UPDATED
         
         Start or continue a game.
         If using computer players, there is a minimum time delay to avoid it instantly making moves.
@@ -334,7 +330,7 @@ class Connect3D(object):
                         break
             else:
                 #AI takes a move, will stop the code if it does something wrong
-                ai_go = SimpleC3DAI(self, self.current_player, players[self.current_player]).calculate_next_move()
+                ai_go = ArtificalIntelligence(self, self.current_player, players[self.current_player]).calculate_next_move()
                 if self.make_move(self.player_symbols[self.current_player], ai_go) is None:
                     raise Connect3DError('Something unknown went wrong with the AI')
                 else:
@@ -361,15 +357,15 @@ class Connect3D(object):
     def play(self, p1_name='Player 1', p2_name='Player 2', 
                    p1=False, p2=bot_difficulty_default, 
                    p1_colour=GREEN, p2_colour=LIGHTBLUE,
-                   allow_shuffle=True, 
-                   end_when_no_points_left=False, 
-                   offset=(0, -25)):
+                   shuffle_level=1, 
+                   end_when_no_points_left=True):
+        
+        #Need to figure out how to update Connect3D class with result
         self = RunPygame(self).play(p1_name=p1_name, p2_name=p2_name, 
                                     p1_player=p1, p2_player=p2, 
                                     p1_colour=p1_colour, p2_colour=p2_colour,
-                                    allow_shuffle=allow_shuffle, 
-                                    end_when_no_points_left=end_when_no_points_left, 
-                                    offset=offset)
+                                    shuffle_level=shuffle_level, 
+                                    end_when_no_points_left=end_when_no_points_left)
                 
     def make_move(self, id, *args):
         """Update the grid data with a new move.
@@ -426,17 +422,21 @@ class Connect3D(object):
             i = PointConversion(self.segments, tuple(args)).to_int()
         
         #Add to grid if cell is empty
-        if 0 <= i < len(self.grid_data) and self.grid_data[i] not in (0, 1) and i is not None:
+        if 0 <= i < self.segments_cubed and self.grid_data[i] not in (0, 1) and i is not None:
             self.grid_data[i] = id
             return i
         else:
             return None
             
             
-    def shuffle(self, no_shuffle=None):
-        """Mirror the grid in the X, Y, or Z axis."""
+    def shuffle(self, max_level=2):
+        """Mirror the grid in the X, Y, or Z axis.
         
-        shuffle_methods = random.sample(range(6), random.randint(0, 5))
+        A max level of 1 is mirror only.
+        A max level of 2 includes rotation.
+        """
+        max_shuffles = max_level * 3
+        shuffle_methods = random.sample(range(max_shuffles), random.randint(0, max_shuffles-1))
         if 0 in shuffle_methods:
             self.grid_data = SwapGridData(self.grid_data).fx()
             if self.range_data is not None:
@@ -931,7 +931,7 @@ def get_max_dict_keys(x):
     return []
   
   
-class SimpleC3DAI(object):
+class ArtificalIntelligence(object):
     """AI coded to play Connect3D."""
     
     def __init__(self, C3DObject, player_num, difficulty=Connect3D.bot_difficulty_default):
@@ -1405,6 +1405,7 @@ class RunPygame(object):
     PADDING_TEXT = (5, 10)
     OVERLAY_WIDTH = 500
     PADDING_OPTIONS = 2
+    PLAYER_RANGE = (0, 1)
     
     def __init__(self, C3DObject, screen_width=640, screen_height=860, default_length=200, default_angle=24):
         self.C3DObject = C3DObject
@@ -1439,7 +1440,7 @@ class RunPygame(object):
         self.backdrop.set_alpha(196)
         self.backdrop.fill(WHITE)
     
-    def play(self, p1_name, p2_name, p1_player, p2_player, p1_colour, p2_colour, allow_shuffle, end_when_no_points_left, offset):
+    def play(self, p1_name, p2_name, p1_player, p2_player, p1_colour, p2_colour, shuffle_level, end_when_no_points_left):
     
         #Setup pygame
         pygame.init()
@@ -1449,6 +1450,7 @@ class RunPygame(object):
         background_colour = BACKGROUND
         self.player_names = (p1_name, p2_name)
         self.player_colours = [p1_colour, p2_colour]
+        offset = (0, -25)
         
         #Import the font
         self.font_file = 'Miss Monkey.ttf'
@@ -1485,13 +1487,14 @@ class RunPygame(object):
                       'hover': False,
                       'flipped': False,
                       'disable_background_clicks': False,
-                      'winner': None}
+                      'winner': None,
+                      'points_left': True}
                       
         #Store information that shouldn't be wiped
         game_data = {'players': (p1_player, p2_player),
                      'overlay': 'options',
                      'move_number': 0,
-                     'shuffle': [allow_shuffle, 3],
+                     'shuffle': [shuffle_level, 3],
                      'debug': False,
                      'offset': offset}
         
@@ -1507,6 +1510,8 @@ class RunPygame(object):
                       'exit': False,
                       'instructions': False,
                       'debug_hover': None,
+                      'segments_hover': None,
+                      'points_left_hover': end_when_no_points_left,
                       'resize_start_x': 0,
                       'resize_start_y': 0,
                       'resize_end_x': 0,
@@ -1521,7 +1526,7 @@ class RunPygame(object):
         mouse_data = pygame.mouse.get_pos()
                      
         #How long to wait before accepting a move
-        moving_wait = 0.5
+        moving_wait = 0.6
         
         #For controlling how the angle and length of grid update
         angle_increment = 0.25
@@ -1536,16 +1541,9 @@ class RunPygame(object):
         time_update = 0.01
         
         self._set_fps(self.FPS_MAIN)
-        '''
-            #Check if any points are left to gain
-            points_left = True
-            if end_when_no_points_left:
-                potential_points = {self.player_symbols[j]: Connect3D.from_list([self.player_symbols[j] if i == '' else i for i in self.grid_data]).current_points for j in (0, 1)}
-                if any(self.current_points == potential_points[player] for player in (self.player_symbols[j] for j in (0, 1))):
-                    points_left = False
-                    '''
-        win_marker = False
+        segments = self.C3DObject.segments
         while True:
+        
             self.clock.tick(self._fps or self.FPS_IDLE)
             tick_data['new'] = pygame.time.get_ticks()
             frame_time = time.time()
@@ -1554,16 +1552,14 @@ class RunPygame(object):
                 return self.C3DObject
             
             #Check if no spaces are left
-            if all(i in (0, 1) for i in self.C3DObject.grid_data):
-                if not win_marker:
+            if all(i in (0, 1) for i in self.C3DObject.grid_data) or not game_flags['points_left']:
+                if not game_flags['winner']:
                     game_flags['winner'] = self.C3DObject._get_winning_player()
                     player_difficulties = [get_bot_difficulty(i, _debug=True) for i in game_data['players']]
                     game_data['overlay'] = 'gameend'
-                win_marker = True
         
             #Reset loop
-            self.screen.fill(background_colour)
-            if tick_data['total']:
+            if tick_data['total'] or True:
                 game_flags['recalculate'] = False
                 game_flags['mouse_used'] = False
                 game_flags['clicked'] = False
@@ -1571,20 +1567,25 @@ class RunPygame(object):
                 self._fps = None
             tick_data['total'] += 1
             
-            
             #Reinitialise the grid
             if game_flags['reset']:
+                game_flags['recalculate'] = True
                 game_flags['reset'] = False
                 game_data['move_number'] = 0
-                game_data['shuffle'][0] = allow_shuffle
+                game_data['shuffle'][0] = shuffle_level
                 game_data['players'] = (p1_player, p2_player)
+                self.C3DObject.segments = segments
                 self.C3DObject = Connect3D(self.C3DObject.segments)
                 game_flags['hover'] = None
-                game_flags['recalculate'] = True
                 game_flags['redraw'] = True
                 store_data['waiting'] = False
                 game_flags['winner'] = None
-                
+                game_flags['points_left'] = True
+                game_flags['flipped'] = False
+                block_data['id'] = None
+                block_data['taken'] = False
+            
+            #Delete the hover data
             if game_flags['hover'] is not None:
                 if self.C3DObject.grid_data[game_flags['hover']] == self.overlay_marker:
                     self.C3DObject.grid_data[game_flags['hover']] = ''
@@ -1594,21 +1595,32 @@ class RunPygame(object):
                 game_flags['disable_background_clicks'] = True
             
             #Delay each go
-            if store_data['waiting']:                    
+            if store_data['waiting']:
                 game_flags['disable_background_clicks'] = True
                 
                 if store_data['waiting_start'] < frame_time:
                 
                     attempted_move = self.C3DObject.make_move(store_data['waiting'][1], store_data['waiting'][0])
+                    self.C3DObject.grid_data[store_data['waiting'][0]] = store_data['waiting'][1]
                     
                     if attempted_move is not None:
                         game_data['move_number'] += 1
                         self.C3DObject.update_score()
                         store_data['shuffle_count'] += 1
                         
+                        #Check if any points are left
+                        if end_when_no_points_left:
+                            for player in self.PLAYER_RANGE:
+                                potential_points = {player: Connect3D.from_list([player if i not in self.PLAYER_RANGE else i 
+                                                                                 for i in self.C3DObject.grid_data]).current_points
+                                                    for player in self.PLAYER_RANGE}
+                                game_flags['points_left'] = any(v != self.C3DObject.current_points for v in potential_points.values())
+                                print game_flags['points_left']
+                        
+                        #Shuffle grid
                         if store_data['shuffle_count'] >= game_data['shuffle'][1] and game_data['shuffle'][0]:
                             store_data['shuffle_count'] = 0
-                            self.C3DObject.shuffle()
+                            self.C3DObject.shuffle(game_data['shuffle'][0])
                             game_flags['flipped'] = True
                         else:
                             game_flags['flipped'] = False
@@ -1618,6 +1630,11 @@ class RunPygame(object):
                         print "Invalid move: {}".format(store_data['waiting'][0])
                         
                     store_data['waiting'] = False
+                    game_flags['mouse_used'] = True
+                    
+                    #Skip to end of game if last move
+                    if len(''.join(map(str, self.C3DObject.grid_data))) == self.C3DObject.segments_cubed:
+                        continue
                     
                 else:
                     try:
@@ -1625,13 +1642,12 @@ class RunPygame(object):
                     except TypeError:
                         print store_data['waiting'], ai_turn
                         raise TypeError('something went wrong, trying to find the cause of this')
-                    
                 
             #Run the AI
             ai_turn = None
             if game_data['players'][self.player] is not False:
                 if not game_flags['disable_background_clicks'] and game_flags['winner'] is None:
-                    ai_turn = SimpleC3DAI(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
+                    ai_turn = ArtificalIntelligence(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
                 
             
             #Event loop
@@ -1651,6 +1667,8 @@ class RunPygame(object):
                     if event.key == pygame.K_ESCAPE:
                         if game_data['overlay'] is None:
                             game_data['overlay'] = 'options'
+                        elif game_data['overlay'] == 'gameend':
+                            pass
                         else:
                             game_data['overlay'] = None
                     
@@ -1824,33 +1842,6 @@ class RunPygame(object):
                 self._set_fps(self.FPS_SMOOTH)
             
             
-            #Update mouse information
-            if game_flags['mouse_used'] or game_flags['recalculate']:
-            
-                self._set_fps(self.FPS_MAIN)
-                    
-                mouse_data = pygame.mouse.get_pos()
-                x, y = self.to_pygame(*mouse_data)
-                block_data['id'] = self.draw_data.game_to_block_index(x, y)
-                block_data['taken'] = True
-                if block_data['id'] is not None and ai_turn is None:
-                    block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
-                    
-            
-            #If mouse was clicked
-            if not game_flags['disable_background_clicks']:
-                if game_flags['clicked'] == 1 and not block_data['taken'] or ai_turn is not None:
-                    store_data['waiting'] = [ai_turn if ai_turn is not None else block_data['id'], self.player]
-                    store_data['waiting_start'] = frame_time + moving_wait
-                    self._next_player()
-                   
-                   
-            #Highlight square
-            if not block_data['taken'] and not store_data['waiting'] and not game_data['overlay']:
-                self.C3DObject.grid_data[block_data['id']] = self.overlay_marker
-                game_flags['hover'] = block_data['id']
-                
-            
             #Recalculate the data to draw the grid
             if game_flags['recalculate']:
             
@@ -1866,6 +1857,38 @@ class RunPygame(object):
                 self.draw_data._calculate()
                 if game_flags['reset']:
                     continue
+                    
+                
+            #Update mouse information
+            if game_flags['mouse_used'] or game_flags['recalculate']:
+            
+                self._set_fps(self.FPS_MAIN)
+                    
+                mouse_data = pygame.mouse.get_pos()
+                x, y = self.to_pygame(*mouse_data)
+                block_data['id'] = self.draw_data.game_to_block_index(x, y)
+                block_data['taken'] = True
+                if block_data['id'] is not None and ai_turn is None:
+                    block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
+            
+            
+            #If mouse was clicked
+            if not game_flags['disable_background_clicks']:
+                if (game_flags['clicked'] == 1 and not block_data['taken']) or ai_turn is not None:
+                    store_data['waiting'] = [ai_turn if ai_turn is not None else block_data['id'], self.player]
+                    store_data['waiting_start'] = frame_time + moving_wait
+                    self._next_player()
+                    continue
+                   
+                   
+            #Highlight square
+            if not block_data['taken'] and not store_data['waiting'] and not game_data['overlay']:
+                self.C3DObject.grid_data[block_data['id']] = self.overlay_marker
+                game_flags['hover'] = block_data['id']
+                
+                
+                
+            self.screen.fill(background_colour)
                 
             #Draw coloured squares
             for i in self.C3DObject.range_data:
@@ -1925,7 +1948,10 @@ class RunPygame(object):
                                    1)
             
             
-            self._draw_score(game_flags['winner'], moving=store_data['waiting'], flipped=game_flags['flipped'])
+            self._draw_score(players=game_data['players'],
+                             winner=game_flags['winner'], 
+                             moving=store_data['waiting'], 
+                             flipped=game_flags['flipped'])
             
             
             if game_data['debug']:
@@ -1948,11 +1974,13 @@ class RunPygame(object):
                     title_message = 'Instructions/About'
                     subtitle_message = ''
                 elif game_data['overlay'] == 'gameend':
-                    title_message = 'Game Over'
+                    subtitle_message = 'Want to play again?'
+                        
                     if game_flags['winner'] is not None and len(game_flags['winner']) == 1:
-                        subtitle_message = '{} was the winner!'.format(self.player_names[game_flags['winner'][0]])
+                        title_message = '{} was the winner!'.format(self.player_names[game_flags['winner'][0]])
                     else:
-                        subtitle_message = 'It was a draw!'
+                        title_message = 'It was a draw!'
+                        
                 elif game_data['move_number'] + bool(store_data['waiting']) and game_data['overlay'] == 'options':
                     title_message = 'Options'
                     subtitle_message = ''
@@ -1975,7 +2003,9 @@ class RunPygame(object):
                     current_height += header_PADDING_TEXT
                     
                 
-                if game_data['overlay'] == 'options':
+                if game_data['overlay'] in ('options', 'gameend'):
+                
+                    in_progress = game_data['move_number'] and game_data['overlay'] != 'gameend'
                     
                     #Player options
                     players_unsaved = [p1_player, p2_player]
@@ -2025,41 +2055,107 @@ class RunPygame(object):
                                     p1_player = player_set
                                 else:
                                     p2_player = player_set
-                                if not game_data['move_number']:
+                                if not in_progress:
                                     game_data['players'] = (p1_player, p2_player)  
                                  
                     
                     #Ask whether to flip the grid
-                    options = ['Yes', 'No']
+                    options = ['Mirror/Rotate', 'Mirror', 'No']
+                    option_len = len(options)
                     params = []
-                    for i in range(len(options)):
-                        params.append([not i and allow_shuffle or i and not allow_shuffle,
-                                       not i and game_data['shuffle'][0] or i and not game_data['shuffle'][0],
-                                       not i and store_data['shuffle_hover'] or i and not store_data['shuffle_hover'] and store_data['shuffle_hover'] is not None])
-                    option_data = self._draw_options('Flip grid every 3 goes? ',
-                                                     ['Yes', 'No'],
+                    for i in range(option_len):
+                        params.append([i == option_len - shuffle_level - 1,
+                                       i == option_len - game_data['shuffle'][0] - 1,
+                                       store_data['shuffle_hover'] is not None and i == option_len - store_data['shuffle_hover'] - 1])
+                    
+                    option_data = self._draw_options('Shuffle grid every 3 goes? ',
+                                                     options,
                                                      params,
                                                      screen_width_offset,
                                                      current_height)
-                                                     
                     selected_option, options_size = option_data
-                    current_height += subheader_PADDING_TEXT + options_size
+                    current_height += self.PADDING_TEXT[1] + options_size
                     
                     #Calculate mouse info
                     store_data['shuffle_hover'] = None
                     if selected_option is not None:
-                        store_data['shuffle_hover'] = not selected_option
+                        store_data['shuffle_hover'] = option_len - selected_option - 1
                         if game_flags['clicked']:
-                            allow_shuffle = not selected_option
-                            if not game_data['move_number']:
-                                game_data['shuffle'][0] = allow_shuffle
+                            shuffle_level = option_len - selected_option - 1
+                            if not in_progress:
+                                game_data['shuffle'][0] = shuffle_level
+                                
                     
-                    #Toggle hidden debug option with ctrl+alt+d
+                    #Ask to end when there are no points left
+                    options = ['Yes', 'No']
+                    params = []
+                    for i in range(option_len):
+                        params.append([i != end_when_no_points_left,
+                                       i != end_when_no_points_left,
+                                       store_data['points_left_hover'] is not None and i != store_data['points_left_hover']])
+
+                    option_data = self._draw_options('End with no available points left? ',
+                                                     options,
+                                                     params,
+                                                     screen_width_offset,
+                                                     current_height)
+                    selected_option, options_size = option_data
+                    current_height += subheader_PADDING_TEXT + options_size
+                    
+                    store_data['points_left_hover'] = None
+                    if selected_option is not None:
+                        store_data['points_left_hover'] = not selected_option
+                        if game_flags['clicked']:
+                            end_when_no_points_left = not selected_option
+                    
+                                
+                    #Toggle hidden debug options with shift+alt+q
                     if not (not key[pygame.K_q] 
                             or not (key[pygame.K_RSHIFT] or key[pygame.K_LSHIFT])
                             or not (key[pygame.K_RALT] or key[pygame.K_LALT])):
+                        
+                        #Change number of segments
+                        options = ['+', '-', 'Default', '({})'.format(segments)]
+                        option_len = len(options)
+                        options = options[:option_len - (segments == self.C3DObject.segments)]
+                        params = []
+                        for i in range(len(options)):
                             
-                        store_data['debug_hover']
+                            if i == option_len - 1:
+                                params.append([False, False, store_data['segments_hover'] in (0, 1)])
+                            elif i == 2:
+                                default_segments = segments == self.C3DObject.default_segments
+                                params.append([False, default_segments, i == store_data['segments_hover']])
+                            else:
+                                params.append([False,
+                                               False,
+                                               i == store_data['segments_hover']])
+                        
+                        option_data = self._draw_options('Segments ({}): '.format(self.C3DObject.segments),
+                                                         options,
+                                                         params,
+                                                         screen_width_offset,
+                                                         current_height)
+                        selected_option, options_size = option_data
+                        
+                        store_data['segments_hover'] = None
+                        if selected_option != option_len - 1:
+                            store_data['segments_hover'] = selected_option
+                            
+                            if game_flags['clicked']:
+                                if selected_option in (0, 1):
+                                    segments += 1 - 2 * selected_option
+                                    segments = max(1, segments)
+                                elif selected_option == 2:
+                                    segments = 4
+                                if not in_progress and self.C3DObject.segments != segments:
+                                    self.C3DObject.segments = segments
+                                    game_flags['reset'] = True
+                        
+                        current_height += self.PADDING_TEXT[1] + options_size
+                        
+                        
+                        #Debug info
                         options = ['Yes', 'No']
                         params = []
                         for i in range(len(options)):
@@ -2068,7 +2164,7 @@ class RunPygame(object):
                                            not i and store_data['debug_hover'] or i and not store_data['debug_hover'] and store_data['debug_hover'] is not None])
                         
                         option_data = self._draw_options('Show debug info? ',
-                                                         ['Yes', 'No'],
+                                                         options,
                                                          params,
                                                          screen_width_offset,
                                                          current_height)
@@ -2083,13 +2179,13 @@ class RunPygame(object):
                         
                         current_height += subheader_PADDING_TEXT + options_size
                     
-                                                  
-                    box_spacing = (header_PADDING_TEXT + self.PADDING_TEXT[1]) if game_data['move_number'] else (self.PADDING_TEXT[1] + self.font_lg_size)
+                    
+                    box_spacing = (header_PADDING_TEXT + self.PADDING_TEXT[1]) if in_progress else (self.PADDING_TEXT[1] + self.font_lg_size)
                     
                     box_height = [current_height]
                     
                     #Tell to restart game
-                    if game_data['move_number']:
+                    if in_progress:
                         current_height += box_spacing
                         restart_message = 'Restart game to apply settings.'
                         restart_text = self.font_md.render(restart_message, 1, BLACK)
@@ -2098,7 +2194,7 @@ class RunPygame(object):
                         current_height += header_PADDING_TEXT
                         
                         #Continue button
-                        if self._pygame_button('Continue', 
+                        if self._draw_button('Continue', 
                                                store_data['continue'], 
                                                current_height, 
                                                -1):
@@ -2113,10 +2209,10 @@ class RunPygame(object):
                     current_height += box_spacing
                     
                     #Instructions button
-                    if self._pygame_button('Instructions' if game_data['move_number'] else 'Help', 
+                    if self._draw_button('Instructions' if in_progress else 'Help', 
                                            store_data['instructions'], 
                                            box_height[0],
-                                           0 if game_data['move_number'] else 1):
+                                           0 if in_progress else 1):
                         store_data['instructions'] = True
                         if game_flags['clicked']:
                             game_data['overlay'] = 'instructions'
@@ -2124,10 +2220,10 @@ class RunPygame(object):
                         store_data['instructions'] = False
                     
                     #New game button
-                    if self._pygame_button('New Game' if game_data['move_number'] else 'Start', 
+                    if self._draw_button('New Game' if in_progress else 'Start', 
                                            store_data['new_game'], 
-                                           box_height[bool(game_data['move_number'])], 
-                                           bool(game_data['move_number']) if game_data['move_number'] else -1):
+                                           box_height[bool(in_progress)], 
+                                           1 if in_progress else -1):
                         store_data['new_game'] = True
                         if game_flags['clicked']:
                             game_flags['reset'] = True
@@ -2136,9 +2232,8 @@ class RunPygame(object):
                         store_data['new_game'] = False
                                                 
                         
-                    
                     #Quit button
-                    if self._pygame_button('Quit to Desktop' if game_data['move_number'] else 'Quit',
+                    if self._draw_button('Quit to Desktop' if in_progress else 'Quit',
                                            store_data['exit'], 
                                            current_height):
                         store_data['exit'] = True
@@ -2162,7 +2257,7 @@ class RunPygame(object):
             
             pygame.display.flip()
                        
-    def _pygame_button(self, message, hover, current_height, width_multipler=0):
+    def _draw_button(self, message, hover, current_height, width_multipler=0):
                        
         multiplier = 3
         
@@ -2172,7 +2267,7 @@ class RunPygame(object):
         text_size = text_object.get_rect()[2:]
         
         
-        centre_offset = self.width / 10 * width_multipler
+        centre_offset = 64 * width_multipler
         text_x = (self.width - text_size[0]) / 2
         if width_multipler > 0:
             text_x += text_size[0] / 2
@@ -2281,7 +2376,7 @@ class RunPygame(object):
             text = text.replace(i, ')')
         return text
     
-    def _draw_score(self, winner, moving=False, flipped=False):
+    def _draw_score(self, players, winner, moving=False, flipped=False):
         """Draw the title."""
         
         #Format scores
@@ -2299,7 +2394,9 @@ class RunPygame(object):
         
         if winner is None:
             if moving:
-                go_message = '{} is moving!'.format(self.player_names[moving[1]])
+                go_message = '{} is moving...'.format(self.player_names[moving[1]])
+            elif players[self.player] is not False:
+                go_message = '{} is thinking...'.format(self.player_names[self.player])
             else:
                 go_message = "{}'s turn!".format(self.player_names[self.player])
         else:
@@ -2335,6 +2432,7 @@ class RunPygame(object):
             
         info = ['DEBUG INFO',
                 'FPS: {}'.format(int(round(self.clock.get_fps(), 0))),
+                'Desired FPS: {}'.format(self._fps or self.FPS_IDLE),
                 'Segments: {}'.format(self.C3DObject.segments),
                 'Angle: {}'.format(self.draw_data.angle),
                 'Offset: {}'.format(map(int, self.draw_data.offset)),
