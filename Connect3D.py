@@ -330,7 +330,7 @@ class Connect3D(object):
                         break
             else:
                 #AI takes a move, will stop the code if it does something wrong
-                ai_go = ArtificalIntelligence(self, self.current_player, players[self.current_player]).calculate_next_move()
+                ai_go = ArtificialIntelligence(self, self.current_player, players[self.current_player]).calculate_next_move()
                 if self.make_move(self.player_symbols[self.current_player], ai_go) is None:
                     raise Connect3DError('Something unknown went wrong with the AI')
                 else:
@@ -872,7 +872,6 @@ class SwapGridData(object):
         | / 4 / 6|/
         |/___/___|
         """
-        
         if reverse is None:
             reverse = random.randint(0, 1)
             
@@ -931,7 +930,7 @@ def get_max_dict_keys(x):
     return []
   
   
-class ArtificalIntelligence(object):
+class ArtificialIntelligence(object):
     """AI coded to play Connect3D."""
     
     def __init__(self, C3DObject, player_num, difficulty=Connect3D.bot_difficulty_default):
@@ -1471,64 +1470,43 @@ class RunPygame(object):
                                  PADDING_TEXT=self.angle / self.C3DObject.segments,
                                  offset=offset)
         
-        #NOTE: These will all be cleaned up later, the grouping isn't great currently
-        
-        held_keys = {'angle': 0,
-                     'size': 0,
-                     'x': 0,
-                     'y': 0}
-                     
-        #Store one off instructions to wipe later
-        game_flags = {'clicked': False,
-                      'mouse_used': True,
-                      'quit': False,
-                      'recalculate': False,
-                      'reset': False,
-                      'hover': False,
-                      'flipped': False,
-                      'disable_background_clicks': False,
-                      'winner': None,
-                      'points_left': True}
-                      
-        #Store information that shouldn't be wiped
         game_data = {'players': (p1_player, p2_player),
                      'overlay': 'options',
                      'move_number': 0,
                      'shuffle': [shuffle_level, 3],
                      'debug': False,
                      'offset': offset}
-        
-        #Store temporary things to update
-        store_data = {'waiting': False,
-                      'waiting_start': 0,
-                      'shuffle_count': 0,
-                      'temp_fps': self.FPS_MAIN,
-                      'player_hover': None,
-                      'shuffle_hover': None,
-                      'new_game': False,
-                      'continue': False,
-                      'exit': False,
-                      'instructions': False,
-                      'debug_hover': None,
-                      'segments_hover': None,
-                      'points_left_hover': end_when_no_points_left,
-                      'resize_start_x': 0,
-                      'resize_start_y': 0,
-                      'resize_end_x': 0,
-                      'resize_end_y': 0}
-        block_data = {'id': None,
-                      'taken': False}
+        misc_data = {'pending_move_start': 0,
+                     'shuffle_count': 0,
+                     'temp_fps': self.FPS_MAIN,
+                     'resize_start_x': 0,
+                     'resize_start_y': 0,
+                     'resize_end_x': 0,
+                     'resize_end_y': 0}
         tick_data = {'old': 0,
                      'new': 0,
                      'update': 4, #How many ticks between each held key command
                      'total': 0}
-                      
+        mouse_hover = {'player': None,
+                       'shuffle': None,
+                       'debug': None,
+                       'segments': None,
+                       'end_early': end_when_no_points_left,
+                       'quit': False,
+                       'continue': False,
+                       'new': False,
+                       'instructions': False}
+        held_keys = {'angle': 0,
+                     'size': 0,
+                     'x': 0,
+                     'y': 0}
+                     
         mouse_data = pygame.mouse.get_pos()
                      
         #How long to wait before accepting a move
         moving_wait = 0.6
         
-        #For controlling how the angle and length of grid update
+        #For controlling how the angle and length of grid change
         angle_increment = 0.25
         angle_max = 40
         length_exponential = 1.1
@@ -1542,49 +1520,53 @@ class RunPygame(object):
         
         self._set_fps(self.FPS_MAIN)
         segments = self.C3DObject.segments
+        game_flags = {'reset': True}
         while True:
-        
             self.clock.tick(self._fps or self.FPS_IDLE)
             tick_data['new'] = pygame.time.get_ticks()
             frame_time = time.time()
-           
+            tick_data['total'] += 1
+            
+            #Reinitialise the game
+            if game_flags['reset']:
+                game_data['move_number'] = 0
+                game_data['shuffle'][0] = shuffle_level
+                game_data['players'] = (p1_player, p2_player)
+                self.C3DObject.segments = segments
+                self.C3DObject = Connect3D(self.C3DObject.segments)
+                
+                block_data = {'id': None,
+                              'taken': False}
+                
+                game_flags = {'pending_move': None,
+                              'clicked': False,
+                              'mouse_used': True,
+                              'quit': False,
+                              'recalculate': False,
+                              'reset': False,
+                              'hover': False,
+                              'flipped': False,
+                              'disable_background_clicks': False,
+                              'winner': None,
+                              'points_left': True}
+            
+            #Reset game loop
+            game_flags['recalculate'] = False
+            game_flags['mouse_used'] = False
+            game_flags['clicked'] = False
+            game_flags['disable_background_clicks'] = False
+            self._fps = None
+                
             if game_flags['quit']:
                 return self.C3DObject
-            
+                
             #Check if no spaces are left
             if all(i in (0, 1) for i in self.C3DObject.grid_data) or not game_flags['points_left']:
                 if not game_flags['winner']:
                     game_flags['winner'] = self.C3DObject._get_winning_player()
                     player_difficulties = [get_bot_difficulty(i, _debug=True) for i in game_data['players']]
                     game_data['overlay'] = 'gameend'
-        
-            #Reset loop
-            if tick_data['total'] or True:
-                game_flags['recalculate'] = False
-                game_flags['mouse_used'] = False
-                game_flags['clicked'] = False
-                game_flags['disable_background_clicks'] = False
-                self._fps = None
-            tick_data['total'] += 1
-            
-            #Reinitialise the grid
-            if game_flags['reset']:
-                game_flags['recalculate'] = True
-                game_flags['reset'] = False
-                game_data['move_number'] = 0
-                game_data['shuffle'][0] = shuffle_level
-                game_data['players'] = (p1_player, p2_player)
-                self.C3DObject.segments = segments
-                self.C3DObject = Connect3D(self.C3DObject.segments)
-                game_flags['hover'] = None
-                game_flags['redraw'] = True
-                store_data['waiting'] = False
-                game_flags['winner'] = None
-                game_flags['points_left'] = True
-                game_flags['flipped'] = False
-                block_data['id'] = None
-                block_data['taken'] = False
-            
+                    
             #Delete the hover data
             if game_flags['hover'] is not None:
                 if self.C3DObject.grid_data[game_flags['hover']] == self.overlay_marker:
@@ -1595,18 +1577,17 @@ class RunPygame(object):
                 game_flags['disable_background_clicks'] = True
             
             #Delay each go
-            if store_data['waiting']:
+            if game_flags['pending_move']:
                 game_flags['disable_background_clicks'] = True
                 
-                if store_data['waiting_start'] < frame_time:
+                if misc_data['pending_move_start'] < frame_time:
                 
-                    attempted_move = self.C3DObject.make_move(store_data['waiting'][1], store_data['waiting'][0])
-                    self.C3DObject.grid_data[store_data['waiting'][0]] = store_data['waiting'][1]
+                    attempted_move = self.C3DObject.make_move(*game_flags['pending_move'])
                     
                     if attempted_move is not None:
                         game_data['move_number'] += 1
                         self.C3DObject.update_score()
-                        store_data['shuffle_count'] += 1
+                        misc_data['shuffle_count'] += 1
                         
                         #Check if any points are left
                         if end_when_no_points_left:
@@ -1615,11 +1596,10 @@ class RunPygame(object):
                                                                                  for i in self.C3DObject.grid_data]).current_points
                                                     for player in self.PLAYER_RANGE}
                                 game_flags['points_left'] = any(v != self.C3DObject.current_points for v in potential_points.values())
-                                print game_flags['points_left']
                         
                         #Shuffle grid
-                        if store_data['shuffle_count'] >= game_data['shuffle'][1] and game_data['shuffle'][0]:
-                            store_data['shuffle_count'] = 0
+                        if misc_data['shuffle_count'] >= game_data['shuffle'][1] and game_data['shuffle'][0]:
+                            misc_data['shuffle_count'] = 0
                             self.C3DObject.shuffle(game_data['shuffle'][0])
                             game_flags['flipped'] = True
                         else:
@@ -1627,9 +1607,9 @@ class RunPygame(object):
                             
                     else:
                         self._next_player()
-                        print "Invalid move: {}".format(store_data['waiting'][0])
+                        print "Invalid move: {}".format(game_flags['pending_move'][1])
                         
-                    store_data['waiting'] = False
+                    game_flags['pending_move'] = None
                     game_flags['mouse_used'] = True
                     
                     #Skip to end of game if last move
@@ -1638,16 +1618,16 @@ class RunPygame(object):
                     
                 else:
                     try:
-                        self.C3DObject.grid_data[store_data['waiting'][0]] = 9 - store_data['waiting'][1]
+                        self.C3DObject.grid_data[game_flags['pending_move'][1]] = 9 - game_flags['pending_move'][0]
                     except TypeError:
-                        print store_data['waiting'], ai_turn
+                        print game_flags['pending_move'], ai_turn
                         raise TypeError('something went wrong, trying to find the cause of this')
                 
             #Run the AI
             ai_turn = None
             if game_data['players'][self.player] is not False:
                 if not game_flags['disable_background_clicks'] and game_flags['winner'] is None:
-                    ai_turn = ArtificalIntelligence(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
+                    ai_turn = ArtificialIntelligence(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
                 
             
             #Event loop
@@ -1664,33 +1644,27 @@ class RunPygame(object):
                 if event.type == pygame.KEYDOWN:
                     game_flags['recalculate'] = True
 
+                    #Set what the escape key does
                     if event.key == pygame.K_ESCAPE:
                         if game_data['overlay'] is None:
                             game_data['overlay'] = 'options'
                         elif game_data['overlay'] == 'gameend':
                             pass
+                        elif game_data['overlay'] == 'instructions':
+                            game_data['overlay'] = 'options'
                         else:
                             game_data['overlay'] = None
-                    
-                    if event.key == pygame.K_RIGHTBRACKET:
-                        self.C3DObject.segments += 1
-                        game_flags['reset'] = True
-                        
-                    if event.key == pygame.K_LEFTBRACKET:
-                        self.C3DObject.segments -= 1
-                        self.C3DObject.segments = max(1, self.C3DObject.segments)
-                        game_flags['reset'] = True
                     
                     #Manually flip the grid
                     if event.key == pygame.K_f:
                         if game_data['debug']:
-                            if store_data['waiting']:
-                                old_move_index = self.C3DObject.range_data[store_data['waiting'][0]]
-                            store_data['shuffle_count'] = 0
+                            if game_flags['pending_move']:
+                                old_move_index = self.C3DObject.range_data[game_flags['pending_move'][1]]
+                            misc_data['shuffle_count'] = 0
                             self.C3DObject.shuffle()
                             game_flags['flipped'] = True
-                            if store_data['waiting']:
-                                store_data['waiting'][0] = self.C3DObject.range_data.index(old_move_index)
+                            if game_flags['pending_move']:
+                                game_flags['pending_move'][1] = self.C3DObject.range_data.index(old_move_index)
                     
                     #Resize the grid
                     if event.key == pygame.K_w:
@@ -1708,26 +1682,26 @@ class RunPygame(object):
                     #Reset the grid
                     if event.key == pygame.K_c:
                         self.draw_data.offset = list(offset)
-                        store_data['resize_end_x'] = store_data['resize_end_y'] = 0
+                        misc_data['resize_end_x'] = misc_data['resize_end_y'] = 0
                         self.draw_data.angle = self.angle
                         self.draw_data.length = self.length
                     
                     #Move the grid
                     if event.key == pygame.K_UP:
                         held_keys['y'] = 1
-                        store_data['resize_start_y'] = frame_time
+                        misc_data['resize_start_y'] = frame_time
                     
                     if event.key == pygame.K_DOWN:
                         held_keys['y'] = -1
-                        store_data['resize_start_y'] = frame_time
+                        misc_data['resize_start_y'] = frame_time
                         
                     if event.key == pygame.K_LEFT:
                         held_keys['x'] = -1
-                        store_data['resize_start_x'] = frame_time
+                        misc_data['resize_start_x'] = frame_time
 
                     if event.key == pygame.K_RIGHT:
                         held_keys['x'] = 1
-                        store_data['resize_start_x'] = frame_time
+                        misc_data['resize_start_x'] = frame_time
                 
                 #Fix for opposite buttons overriding each other
                 if event.type == pygame.KEYUP:
@@ -1746,19 +1720,19 @@ class RunPygame(object):
                         
                     if event.key == pygame.K_UP and key[pygame.K_DOWN]:
                         held_keys['y'] = -1
-                        store_data['resize_start_y'] = frame_time
+                        misc_data['resize_start_y'] = frame_time
                     
                     if event.key == pygame.K_DOWN and key[pygame.K_UP]:
                         held_keys['y'] = 1
-                        store_data['resize_start_y'] = frame_time
+                        misc_data['resize_start_y'] = frame_time
                         
                     if event.key == pygame.K_LEFT and key[pygame.K_RIGHT]:
                         held_keys['x'] = 1
-                        store_data['resize_start_x'] = frame_time
+                        misc_data['resize_start_x'] = frame_time
 
                     if event.key == pygame.K_RIGHT and key[pygame.K_LEFT]:
                         held_keys['x'] = -1
-                        store_data['resize_start_x'] = frame_time
+                        misc_data['resize_start_x'] = frame_time
                         
                 #Get mouse clicks
                 if event.type == pygame.MOUSEBUTTONDOWN:
@@ -1801,9 +1775,9 @@ class RunPygame(object):
                     
             #Move the grid on the screen
             if held_keys['x']:
-                time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_x']) * offset_smooth
+                time_difference = min(1.0 / offset_smooth, frame_time - misc_data['resize_start_x']) * offset_smooth
                 if not (key[pygame.K_LEFT] or key[pygame.K_RIGHT]) or (key[pygame.K_LEFT] and key[pygame.K_RIGHT]):
-                    store_data['resize_end_x'] = (frame_time + max(1.0 / offset_smooth, time_difference) - 1) * held_keys['x']
+                    misc_data['resize_end_x'] = (frame_time + max(1.0 / offset_smooth, time_difference) - 1) * held_keys['x']
                     held_keys['x'] = 0
                 
                 elif update_yet:
@@ -1811,9 +1785,9 @@ class RunPygame(object):
                     changed_something = True
             
             if held_keys['y']:
-                time_difference = min(1.0 / offset_smooth, frame_time - store_data['resize_start_y']) * offset_smooth
+                time_difference = min(1.0 / offset_smooth, frame_time - misc_data['resize_start_y']) * offset_smooth
                 if not (key[pygame.K_UP] or key[pygame.K_DOWN]) or (key[pygame.K_LEFT] and key[pygame.K_RIGHT]):
-                    store_data['resize_end_y'] = (frame_time + max(1.0 / offset_smooth, time_difference) - 1) * held_keys['y']
+                    misc_data['resize_end_y'] = (frame_time + max(1.0 / offset_smooth, time_difference) - 1) * held_keys['y']
                     held_keys['y'] = 0
                 
                 elif update_yet:
@@ -1821,17 +1795,17 @@ class RunPygame(object):
                     changed_something = True
             
             #Slowly stop movement when keys are no longer being held
-            x_difference = frame_time - abs(store_data['resize_end_x'])
-            y_difference = frame_time - abs(store_data['resize_end_y'])
+            x_difference = frame_time - abs(misc_data['resize_end_x'])
+            y_difference = frame_time - abs(misc_data['resize_end_y'])
             
             if not held_keys['x'] and  x_difference < 1.0 / offset_falloff and update_yet:
-                negative_multiple = int('-1'[store_data['resize_end_x'] > 0:])
+                negative_multiple = int('-1'[misc_data['resize_end_x'] > 0:])
                 come_to_stop = min(1, 1.0 / offset_falloff - x_difference)
                 self.draw_data.offset[0] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
                 changed_something = True
                 
             if not held_keys['y'] and  y_difference < 1.0 / offset_falloff and update_yet:
-                negative_multiple = int('-1'[store_data['resize_end_y'] > 0:])
+                negative_multiple = int('-1'[misc_data['resize_end_y'] > 0:])
                 come_to_stop = min(1, 1.0 / offset_falloff - y_difference)
                 self.draw_data.offset[1] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
                 changed_something = True
@@ -1875,14 +1849,14 @@ class RunPygame(object):
             #If mouse was clicked
             if not game_flags['disable_background_clicks']:
                 if (game_flags['clicked'] == 1 and not block_data['taken']) or ai_turn is not None:
-                    store_data['waiting'] = [ai_turn if ai_turn is not None else block_data['id'], self.player]
-                    store_data['waiting_start'] = frame_time + moving_wait
+                    game_flags['pending_move'] = [self.player, ai_turn if ai_turn is not None else block_data['id']]
+                    misc_data['pending_move_start'] = frame_time + moving_wait
                     self._next_player()
                     continue
                    
                    
             #Highlight square
-            if not block_data['taken'] and not store_data['waiting'] and not game_data['overlay']:
+            if not block_data['taken'] and not game_flags['pending_move'] and not game_data['overlay'] and block_data['id'] is not None:
                 self.C3DObject.grid_data[block_data['id']] = self.overlay_marker
                 game_flags['hover'] = block_data['id']
                 
@@ -1950,7 +1924,7 @@ class RunPygame(object):
             
             self._draw_score(players=game_data['players'],
                              winner=game_flags['winner'], 
-                             moving=store_data['waiting'], 
+                             pending_move=game_flags['pending_move'], 
                              flipped=game_flags['flipped'])
             
             
@@ -1981,7 +1955,7 @@ class RunPygame(object):
                     else:
                         title_message = 'It was a draw!'
                         
-                elif game_data['move_number'] + bool(store_data['waiting']) and game_data['overlay'] == 'options':
+                elif game_data['move_number'] + bool(game_flags['pending_move']) and game_data['overlay'] == 'options':
                     title_message = 'Options'
                     subtitle_message = ''
                 else:
@@ -2004,14 +1978,15 @@ class RunPygame(object):
                     
                 
                 if game_data['overlay'] in ('options', 'gameend'):
-                
-                    in_progress = game_data['move_number'] and game_data['overlay'] != 'gameend'
+                    
+                    #Determine which style menu to use
+                    in_progress = (game_data['move_number'] or game_flags['pending_move']) and game_data['overlay'] != 'gameend'
                     
                     #Player options
                     players_unsaved = [p1_player, p2_player]
                     players_original = list(game_data['players'])
-                    player_hover = store_data['player_hover']
-                    store_data['player_hover'] = None
+                    player_hover = mouse_hover['player']
+                    mouse_hover['player'] = None
                     options = ['Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme']
                     
                     for player in range(len(game_data['players'])):
@@ -2049,7 +2024,7 @@ class RunPygame(object):
                             player_set = selected_option - 1
                             if player_set < 0:
                                 player_set = False
-                            store_data['player_hover'] = [player, selected_option]
+                            mouse_hover['player'] = [player, selected_option]
                             if game_flags['clicked']:
                                 if not player:
                                     p1_player = player_set
@@ -2066,7 +2041,7 @@ class RunPygame(object):
                     for i in range(option_len):
                         params.append([i == option_len - shuffle_level - 1,
                                        i == option_len - game_data['shuffle'][0] - 1,
-                                       store_data['shuffle_hover'] is not None and i == option_len - store_data['shuffle_hover'] - 1])
+                                       mouse_hover['shuffle'] is not None and i == option_len - mouse_hover['shuffle'] - 1])
                     
                     option_data = self._draw_options('Shuffle grid every 3 goes? ',
                                                      options,
@@ -2077,9 +2052,9 @@ class RunPygame(object):
                     current_height += self.PADDING_TEXT[1] + options_size
                     
                     #Calculate mouse info
-                    store_data['shuffle_hover'] = None
+                    mouse_hover['shuffle'] = None
                     if selected_option is not None:
-                        store_data['shuffle_hover'] = option_len - selected_option - 1
+                        mouse_hover['shuffle'] = option_len - selected_option - 1
                         if game_flags['clicked']:
                             shuffle_level = option_len - selected_option - 1
                             if not in_progress:
@@ -2092,7 +2067,7 @@ class RunPygame(object):
                     for i in range(option_len):
                         params.append([i != end_when_no_points_left,
                                        i != end_when_no_points_left,
-                                       store_data['points_left_hover'] is not None and i != store_data['points_left_hover']])
+                                       mouse_hover['end_early'] is not None and i != mouse_hover['end_early']])
 
                     option_data = self._draw_options('End with no available points left? ',
                                                      options,
@@ -2102,9 +2077,9 @@ class RunPygame(object):
                     selected_option, options_size = option_data
                     current_height += subheader_PADDING_TEXT + options_size
                     
-                    store_data['points_left_hover'] = None
+                    mouse_hover['end_early'] = None
                     if selected_option is not None:
-                        store_data['points_left_hover'] = not selected_option
+                        mouse_hover['end_early'] = not selected_option
                         if game_flags['clicked']:
                             end_when_no_points_left = not selected_option
                     
@@ -2122,14 +2097,14 @@ class RunPygame(object):
                         for i in range(len(options)):
                             
                             if i == option_len - 1:
-                                params.append([False, False, store_data['segments_hover'] in (0, 1)])
+                                params.append([False, False, mouse_hover['segments'] in (0, 1)])
                             elif i == 2:
                                 default_segments = segments == self.C3DObject.default_segments
-                                params.append([False, default_segments, i == store_data['segments_hover']])
+                                params.append([False, default_segments, i == mouse_hover['segments']])
                             else:
                                 params.append([False,
                                                False,
-                                               i == store_data['segments_hover']])
+                                               i == mouse_hover['segments']])
                         
                         option_data = self._draw_options('Segments ({}): '.format(self.C3DObject.segments),
                                                          options,
@@ -2138,9 +2113,9 @@ class RunPygame(object):
                                                          current_height)
                         selected_option, options_size = option_data
                         
-                        store_data['segments_hover'] = None
+                        mouse_hover['segments'] = None
                         if selected_option != option_len - 1:
-                            store_data['segments_hover'] = selected_option
+                            mouse_hover['segments'] = selected_option
                             
                             if game_flags['clicked']:
                                 if selected_option in (0, 1):
@@ -2161,7 +2136,7 @@ class RunPygame(object):
                         for i in range(len(options)):
                             params.append([not i and game_data['debug'] or i and not game_data['debug'],
                                            not i and game_data['debug'] or i and not game_data['debug'],
-                                           not i and store_data['debug_hover'] or i and not store_data['debug_hover'] and store_data['debug_hover'] is not None])
+                                           not i and mouse_hover['debug'] or i and not mouse_hover['debug'] and mouse_hover['debug'] is not None])
                         
                         option_data = self._draw_options('Show debug info? ',
                                                          options,
@@ -2171,9 +2146,9 @@ class RunPygame(object):
                                                  
                         selected_option, options_size = option_data
                         
-                        store_data['debug_hover'] = None
+                        mouse_hover['debug'] = None
                         if selected_option is not None:
-                            store_data['debug_hover'] = not selected_option
+                            mouse_hover['debug'] = not selected_option
                             if game_flags['clicked']:
                                 game_data['debug'] = not selected_option
                         
@@ -2195,14 +2170,14 @@ class RunPygame(object):
                         
                         #Continue button
                         if self._draw_button('Continue', 
-                                               store_data['continue'], 
+                                               mouse_hover['continue'], 
                                                current_height, 
                                                -1):
-                            store_data['continue'] = True
+                            mouse_hover['continue'] = True
                             if game_flags['clicked']:
                                 game_data['overlay'] = None
                         else:
-                            store_data['continue'] = False
+                            mouse_hover['continue'] = False
                             
                     
                     box_height.append(current_height)
@@ -2210,37 +2185,37 @@ class RunPygame(object):
                     
                     #Instructions button
                     if self._draw_button('Instructions' if in_progress else 'Help', 
-                                           store_data['instructions'], 
+                                           mouse_hover['instructions'], 
                                            box_height[0],
                                            0 if in_progress else 1):
-                        store_data['instructions'] = True
+                        mouse_hover['instructions'] = True
                         if game_flags['clicked']:
                             game_data['overlay'] = 'instructions'
                     else:
-                        store_data['instructions'] = False
+                        mouse_hover['instructions'] = False
                     
                     #New game button
                     if self._draw_button('New Game' if in_progress else 'Start', 
-                                           store_data['new_game'], 
+                                           mouse_hover['new'], 
                                            box_height[bool(in_progress)], 
                                            1 if in_progress else -1):
-                        store_data['new_game'] = True
+                        mouse_hover['new'] = True
                         if game_flags['clicked']:
                             game_flags['reset'] = True
                             game_data['overlay'] = None
                     else:
-                        store_data['new_game'] = False
+                        mouse_hover['new'] = False
                                                 
                         
                     #Quit button
                     if self._draw_button('Quit to Desktop' if in_progress else 'Quit',
-                                           store_data['exit'], 
+                                           mouse_hover['quit'], 
                                            current_height):
-                        store_data['exit'] = True
+                        mouse_hover['quit'] = True
                         if game_flags['clicked']:
                             game_flags['quit'] = True
                     else:
-                        store_data['exit'] = False
+                        mouse_hover['quit'] = False
                         
                 #Draw background
                 background_square = (screen_width_offset, header_PADDING_TEXT, self.OVERLAY_WIDTH, current_height + self.PADDING_TEXT[1] * 2)
@@ -2376,7 +2351,7 @@ class RunPygame(object):
             text = text.replace(i, ')')
         return text
     
-    def _draw_score(self, players, winner, moving=False, flipped=False):
+    def _draw_score(self, players, winner, pending_move=False, flipped=False):
         """Draw the title."""
         
         #Format scores
@@ -2393,8 +2368,8 @@ class RunPygame(object):
         p_size_bottom = p1_font_bottom.get_rect()[2:]
         
         if winner is None:
-            if moving:
-                go_message = '{} is moving...'.format(self.player_names[moving[1]])
+            if pending_move:
+                go_message = '{} is moving...'.format(self.player_names[pending_move[0]])
             elif players[self.player] is not False:
                 go_message = '{} is thinking...'.format(self.player_names[self.player])
             else:
