@@ -1395,6 +1395,11 @@ class GridDrawData(object):
 
 
 class RunPygame(object):
+    """Class to run and draw the game.
+    
+    Various info:
+    Player 1 and Player 2 are stored as 0 and 1. When a move is pending, it is stored as 9-n.
+    """
     
     overlay_marker = '/'
     EMPTY = YELLOW
@@ -1450,6 +1455,7 @@ class RunPygame(object):
         self.player_names = (p1_name, p2_name)
         self.player_colours = [p1_colour, p2_colour]
         offset = (0, -25)
+        new_c3d = Connect3D.from_list
         
         #Import the font
         self.font_file = 'Miss Monkey.ttf'
@@ -1527,7 +1533,7 @@ class RunPygame(object):
             frame_time = time.time()
             tick_data['total'] += 1
             
-            #Reinitialise the game
+            #Reset the game
             if game_flags['reset']:
                 game_data['move_number'] = 0
                 game_data['shuffle'][0] = shuffle_level
@@ -1551,14 +1557,18 @@ class RunPygame(object):
                               'points_left': True}
             
             #Reset game loop
-            game_flags['recalculate'] = False
+            game_flags['recalculate'] = True
             game_flags['mouse_used'] = False
             game_flags['clicked'] = False
             game_flags['disable_background_clicks'] = False
+            game_flags['hover'] = None
             self._fps = None
                 
             if game_flags['quit']:
                 return self.C3DObject
+            
+            if game_data['overlay']:
+                game_flags['disable_background_clicks'] = True
                 
             #Check if no spaces are left
             if all(i in (0, 1) for i in self.C3DObject.grid_data) or not game_flags['points_left']:
@@ -1566,15 +1576,6 @@ class RunPygame(object):
                     game_flags['winner'] = self.C3DObject._get_winning_player()
                     player_difficulties = [get_bot_difficulty(i, _debug=True) for i in game_data['players']]
                     game_data['overlay'] = 'gameend'
-                    
-            #Delete the hover data
-            if game_flags['hover'] is not None:
-                if self.C3DObject.grid_data[game_flags['hover']] == self.overlay_marker:
-                    self.C3DObject.grid_data[game_flags['hover']] = ''
-                game_flags['hover'] = None
-            
-            if game_data['overlay']:
-                game_flags['disable_background_clicks'] = True
             
             #Delay each go
             if game_flags['pending_move']:
@@ -1592,10 +1593,11 @@ class RunPygame(object):
                         #Check if any points are left
                         if end_when_no_points_left:
                             for player in self.PLAYER_RANGE:
-                                potential_points = {player: Connect3D.from_list([player if i not in self.PLAYER_RANGE else i 
-                                                                                 for i in self.C3DObject.grid_data]).current_points
+                                potential_points = {player: new_c3d([player if i not in self.PLAYER_RANGE else i 
+                                                                     for i in self.C3DObject.grid_data]).current_points
                                                     for player in self.PLAYER_RANGE}
-                                game_flags['points_left'] = any(v != self.C3DObject.current_points for v in potential_points.values())
+                                game_flags['points_left'] = any(v != self.C3DObject.current_points 
+                                                                for v in potential_points.values())
                         
                         #Shuffle grid
                         if misc_data['shuffle_count'] >= game_data['shuffle'][1] and game_data['shuffle'][0]:
@@ -1857,7 +1859,6 @@ class RunPygame(object):
                    
             #Highlight square
             if not block_data['taken'] and not game_flags['pending_move'] and not game_data['overlay'] and block_data['id'] is not None:
-                self.C3DObject.grid_data[block_data['id']] = self.overlay_marker
                 game_flags['hover'] = block_data['id']
                 
                 
@@ -1866,7 +1867,7 @@ class RunPygame(object):
                 
             #Draw coloured squares
             for i in self.C3DObject.range_data:
-                if self.C3DObject.grid_data[i] != '':
+                if self.C3DObject.grid_data[i] != '' or i == game_flags['hover']:
                 
                     chunk = i / self.C3DObject.segments_squared
                     coordinate = list(self.draw_data.relative_coordinates[i % self.C3DObject.segments_squared])
@@ -1884,7 +1885,7 @@ class RunPygame(object):
                   
                     #Player has mouse over square
                     block_colour = None
-                    if self.C3DObject.grid_data[i] == self.overlay_marker:
+                    if self.C3DObject.grid_data[i] == '':
                     
                         if game_data['players'][self.player] is False:
                             block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
@@ -1911,7 +1912,6 @@ class RunPygame(object):
                                             [self.to_canvas(*corner)
                                              for corner in square],
                                             0)
-                                        
                 
             #Draw grid
             for line in self.draw_data.line_coordinates:
@@ -2090,7 +2090,7 @@ class RunPygame(object):
                             or not (key[pygame.K_RALT] or key[pygame.K_LALT])):
                         
                         #Change number of segments
-                        options = ['+', '-', 'Default', '({})'.format(segments)]
+                        options = ['+', '-', '({})'.format(segments)]
                         option_len = len(options)
                         options = options[:option_len - (segments == self.C3DObject.segments)]
                         params = []
@@ -2098,9 +2098,6 @@ class RunPygame(object):
                             
                             if i == option_len - 1:
                                 params.append([False, False, mouse_hover['segments'] in (0, 1)])
-                            elif i == 2:
-                                default_segments = segments == self.C3DObject.default_segments
-                                params.append([False, default_segments, i == mouse_hover['segments']])
                             else:
                                 params.append([False,
                                                False,
@@ -2121,8 +2118,6 @@ class RunPygame(object):
                                 if selected_option in (0, 1):
                                     segments += 1 - 2 * selected_option
                                     segments = max(1, segments)
-                                elif selected_option == 2:
-                                    segments = 4
                                 if not in_progress and self.C3DObject.segments != segments:
                                     self.C3DObject.segments = segments
                                     game_flags['reset'] = True
@@ -2422,15 +2417,14 @@ class RunPygame(object):
             message_height = self.height - sum(j[1] for j in font_size[i:])
             self.screen.blit(font_render[i], (0, message_height))
             
-        
+            
         #Format the AI text output
-        ai_message = []
-        for i in self.C3DObject.ai_message:
-        
-            #Split into chunks of 50 if longer
-            message_len = len(i)
-            message = [self._format_output(i[n * 50:(n + 1) * 50]) for n in range(round_up(message_len / 50.0))]
-            ai_message += message
+        if not self.C3DObject.ai_message:
+            return
+        max_len = 50
+        ai_message = [self._format_output(i[n * max_len:(n + 1) * max_len]) 
+                      for n in range(round_up(len(i) / float(max_len)))
+                      for i in self.C3DObject.ai_message]
         
         font_render = [self.font_sm.render(i, 1, BLACK) for i in ai_message]
         font_size = [i.get_rect()[2:] for i in font_render]
