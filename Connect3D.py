@@ -1100,11 +1100,9 @@ class ArtificialIntelligence(object):
                     message = 'Gain Moves: {}'
                 elif k == self.enemy:
                     message = 'Block Moves: {}'
-                self.C3DObject.ai_message.append(message.format(v))
+                ai_message(message.format(v))
                     
-            
-            #self.C3DObject.ai_message.append('Possible Moves: {}'.format(possible_moves_message))
-            self.C3DObject.ai_message.append('Urgent: {}'.format(not far_away))
+            ai_message('Urgent: {}'.format(not far_away))
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
             if not far_away:
@@ -1533,6 +1531,14 @@ class RunPygame(object):
             frame_time = time.time()
             tick_data['total'] += 1
             
+            #Reset game loop
+            game_flags['recalculate'] = False
+            game_flags['mouse_used'] = False
+            game_flags['clicked'] = False
+            game_flags['disable_background_clicks'] = False
+            game_flags['hover'] = None
+            self._fps = None
+            
             #Reset the game
             if game_flags['reset']:
                 game_data['move_number'] = 0
@@ -1548,7 +1554,7 @@ class RunPygame(object):
                               'clicked': False,
                               'mouse_used': True,
                               'quit': False,
-                              'recalculate': False,
+                              'recalculate': True,
                               'reset': False,
                               'hover': False,
                               'flipped': False,
@@ -1556,13 +1562,6 @@ class RunPygame(object):
                               'winner': None,
                               'points_left': True}
             
-            #Reset game loop
-            game_flags['recalculate'] = True
-            game_flags['mouse_used'] = False
-            game_flags['clicked'] = False
-            game_flags['disable_background_clicks'] = False
-            game_flags['hover'] = None
-            self._fps = None
                 
             if game_flags['quit']:
                 return self.C3DObject
@@ -1812,7 +1811,6 @@ class RunPygame(object):
                 self.draw_data.offset[1] += offset_increment * negative_multiple * pow(self.draw_data.length, offset_exponential) * come_to_stop
                 changed_something = True
                     
-                    
             if changed_something:
                 game_flags['recalculate'] = True
                 self._set_fps(self.FPS_SMOOTH)
@@ -1833,8 +1831,7 @@ class RunPygame(object):
                 self.draw_data._calculate()
                 if game_flags['reset']:
                     continue
-                    
-                
+                   
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
             
@@ -2423,9 +2420,9 @@ class RunPygame(object):
             return
         max_len = 50
         ai_message = [self._format_output(i[n * max_len:(n + 1) * max_len]) 
-                      for n in range(round_up(len(i) / float(max_len)))
-                      for i in self.C3DObject.ai_message]
-        
+                      for i in self.C3DObject.ai_message
+                      for n in range(round_up(len(i) / float(max_len)))]
+            
         font_render = [self.font_sm.render(i, 1, BLACK) for i in ai_message]
         font_size = [i.get_rect()[2:] for i in font_render]
 
