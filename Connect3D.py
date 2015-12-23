@@ -7,7 +7,12 @@ import math
 from collections import defaultdict
 class Connect3DError(Exception):
     pass
+try:
+    import android
+except ImportError:
+    android = None
 
+    
 BACKGROUND = (250, 250, 255)
 LIGHTBLUE = (86, 190, 255)
 LIGHTGREY = (200, 200, 200)
@@ -189,15 +194,15 @@ class Connect3D(object):
                 Format: "joined(grid_data).current_player.joined(zfilled(play_data)).joined(zfilled(range_data))"
         """
         split_data = raw_data.split(cls.from_string_separator)
-        grid_data = [i if i != ' ' else '' for i in split_data[0]]
+        grid_data = [int(i) if i != ' ' else '' for i in split_data[0]]
         segments = calculate_segments(grid_data)
         longest_number = len(str(pow(segments, 3) - 1))
         
         new_c3d_instance = cls(segments)
         
         new_c3d_instance.grid_data = grid_data
-        new_c3d_instance.play_data = None
-        new_c3d_instance.range_data = None
+        #new_c3d_instance.play_data = None
+        #new_c3d_instance.range_data = None
         
         #Get current player
         if len(split_data) > 1:
@@ -1114,8 +1119,9 @@ class ArtificialIntelligence(object):
             order_of_importance = int('-'[:int(far_away)] + '1')
             
             ai_new_tactic = random.uniform(0, 100) < chance_of_changing_tactic
+            ai_message('Swapped priorities: {}'.format(ai_new_tactic))
             if ai_new_tactic:
-                ai_message('AI changed tacic.')
+                #ai_message('AI changed tacic.')
                 order_of_importance = random.choice((-1, 1))
                 
             move1_player = [self.enemy, self.player][::order_of_importance]
@@ -1257,7 +1263,7 @@ def get_bot_difficulty(level, _default=Connect3D.bot_difficulty_default, _debug=
     elif level == difficulty_level[2]:
         if _debug:
             return 3
-        return (40, 40, 4)
+        return (40, 40, 3)
     elif level == difficulty_level[3]:
         if _debug:
             return 4
@@ -1290,11 +1296,11 @@ class CoordinateConvert(object):
 class GridDrawData(object):
     """Hold the relevant data for the grid, to allow it to be shown."""
     
-    def __init__(self, length, segments, angle, PADDING_TEXT=5, offset=(0, 0)):
+    def __init__(self, length, segments, angle, padding=5, offset=(0, 0)):
         self.length = length
         self.segments = segments
         self.angle = angle
-        self.PADDING_TEXT = PADDING_TEXT
+        self.padding = padding
         self.offset = list(offset)
         self._calculate()
 
@@ -1343,9 +1349,9 @@ class GridDrawData(object):
         self.size_y = self.length * math.sin(math.radians(self.angle))
         self.x_offset = self.size_x / self.segments
         self.y_offset = self.size_y / self.segments
-        self.chunk_height = self.size_y * 2 + self.PADDING_TEXT
+        self.chunk_height = self.size_y * 2 + self.padding
         
-        self.centre = (self.chunk_height / 2) * self.segments - self.PADDING_TEXT / 2
+        self.centre = (self.chunk_height / 2) * self.segments - self.padding / 2
         self.size_x_sm = self.size_x / self.segments
         self.size_y_sm = self.size_y / self.segments
         
@@ -1456,22 +1462,23 @@ class RunPygame(object):
         new_c3d = Connect3D.from_list
         
         #Import the font
-        self.font_file = 'Miss Monkey.ttf'
+        self.font_file = 'libtype.dll'
         try:
             pygame.font.Font(self.font_file, 0)
         except IOError:
-            raise IOError('unable to load font - download from http://www.dafont.com/miss-monkey.font')
+            print 'Failed to load font'
+            return
         self.font_lg = pygame.font.Font(self.font_file, 36)
         self.font_lg_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
         self.font_md = pygame.font.Font(self.font_file, 24)
         self.font_md_size = self.font_md.render('', 1, BLACK).get_rect()[3]
-        self.font_sm = pygame.font.Font(self.font_file, 18)
+        self.font_sm = pygame.font.Font(self.font_file, 21)
         self.font_sm_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
             
         self.draw_data = GridDrawData(self.length,
                                  self.C3DObject.segments,
                                  self.angle,
-                                 PADDING_TEXT=self.angle / self.C3DObject.segments,
+                                 padding=self.angle / self.C3DObject.segments,
                                  offset=offset)
         
         game_data = {'players': (p1_player, p2_player),
@@ -1499,7 +1506,8 @@ class RunPygame(object):
                        'quit': False,
                        'continue': False,
                        'new': False,
-                       'instructions': False}
+                       'instructions': False,
+                       'directions': None}
         held_keys = {'angle': 0,
                      'size': 0,
                      'x': 0,
@@ -1571,7 +1579,7 @@ class RunPygame(object):
                 
             #Check if no spaces are left
             if all(i in (0, 1) for i in self.C3DObject.grid_data) or not game_flags['points_left']:
-                if not game_flags['winner']:
+                if not game_flags['winner'] or game_data['overlay'] == 'options':
                     game_flags['winner'] = self.C3DObject._get_winning_player()
                     player_difficulties = [get_bot_difficulty(i, _debug=True) for i in game_data['players']]
                     game_data['overlay'] = 'gameend'
@@ -1653,6 +1661,8 @@ class RunPygame(object):
                             pass
                         elif game_data['overlay'] == 'instructions':
                             game_data['overlay'] = 'options'
+                        elif game_data['overlay'] == 'about':
+                            game_data['overlay'] = 'instructions'
                         else:
                             game_data['overlay'] = None
                     
@@ -1861,7 +1871,8 @@ class RunPygame(object):
                 
                 
             self.screen.fill(background_colour)
-                
+            
+            
             #Draw coloured squares
             for i in self.C3DObject.range_data:
                 if self.C3DObject.grid_data[i] != '' or i == game_flags['hover']:
@@ -1927,7 +1938,7 @@ class RunPygame(object):
             
             if game_data['debug']:
                 self._draw_debug(block_data['id'], held_keys)
-            
+                
             if game_data['overlay']:
                 
                 self._set_fps(self.FPS_MAIN)
@@ -1942,7 +1953,10 @@ class RunPygame(object):
                 
                 #Set page titles
                 if game_data['overlay'] == 'instructions':
-                    title_message = 'Instructions/About'
+                    title_message = 'Instructions'
+                    subtitle_message = ''
+                elif game_data['overlay'] == 'about':
+                    title_message = 'About'
                     subtitle_message = ''
                 elif game_data['overlay'] == 'gameend':
                     subtitle_message = 'Want to play again?'
@@ -1969,12 +1983,180 @@ class RunPygame(object):
                 subtitle_size = subtitle_text.get_rect()[2:]
                 self.blit_list.append((subtitle_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
                 
-                current_height += subtitle_size[1]
+                #current_height += subtitle_size[1]
                 if subtitle_message:
                     current_height += header_PADDING_TEXT
+                
+                dd = None
+                if game_data['overlay'] == 'instructions':
+                    
+                    #Crappy implementation, this will be fixed in the future
+                    try:
+                        grid_example_id
+                    except NameError:
+                        grid_example_id = 0
+                    grid_data = [
+                    '                    3333                                        ',   #across
+                    '                 3   3   3   3                                  ',   #across
+                    '                   3  3  3  3                                   ',   #diagonal flat
+                    '                3    3    3    3                                ',   #diagonal flat
+                    '     3               3               3               3          ',   #down
+                    '    3                3                3                3        ',   #diagonal down
+                    '       3              3              3              3           ',   #diagonal down
+                    ' 3                   3                   3                   3  ',   #diagonal down
+                    '             3           3           3           3              ',   #diagonal down
+                    '3                    3                    3                    3',   #corner to corner
+                    '               3          3          3          3               ',   #corner to corner
+                    '   3                  3                  3                  3   ',   #corner to corner
+                    '            3            3            3            3            ',   #corner to corner
+                    ]
+                    example_id_text = '({}/13)'.format(grid_example_id + 1)
+                    
+                    text_chunks = [
+                    'The aim of the game is to finish with more points than',
+                    'your opponent.',
+                    '',
+                    'You get one point for completing a row in any direction,',
+                    'and the game ends when no more points are available.',
+                    ]
+                    
+                    for chunk in text_chunks:
+                        if not chunk:
+                            current_height += self.PADDING_TEXT[1]
+                            continue
+                        help_text = self.font_sm.render(chunk, 1, BLACK)
+                        help_size = help_text.get_rect()[2:]
+                        self.blit_list.append((help_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
+                        current_height += help_size[1]
+
+                    current_height += self.PADDING_TEXT[1]
+                        
+                    options = ['Previous', 'Next']
+                    option_len = len(options)
+                    params = []
+                    for i in range(option_len):
+                        params.append([i == 2,
+                                       False,
+                                       i == mouse_hover['directions']])
+                    
+                    
+                    option_data = self._draw_options('Here are examples of each direction {}: '.format(example_id_text),
+                                                     options,
+                                                     params,
+                                                     screen_width_offset,
+                                                     current_height,
+                                                     custom_font=self.font_sm)
+                    selected_option, options_size = option_data
+                    current_height += options_size + self.PADDING_TEXT[1]
+                    
+                    if selected_option == 2:
+                        mouse_hover['directions'] = None
+                    else:
+                        mouse_hover['directions'] = selected_option
+                        if selected_option is not None:
+                            if game_flags['clicked']:
+                                grid_example_id += selected_option * 2 - 1
+                                grid_example_id %= 13
+                            
+                    c3d = Connect3D.from_string(grid_data[grid_example_id])
+                    
+                    dd = GridDrawData(100, 4, 24, padding=5)
+                    dd.offset = (0, self.height / 2 - current_height - dd.centre)
+                    dd._calculate()
+                    current_height += dd.centre * 2 + self.PADDING_TEXT[1] * 2
+                          
+
+                    text_chunks = [
+                    'The grid will flip itself to stop things from becoming too',
+                    'easy.'
+                    ]
+                    
+                    for chunk in text_chunks:
+                        if not chunk:
+                            current_height += self.PADDING_TEXT[1]
+                            continue
+                        help_text = self.font_sm.render(chunk, 1, BLACK)
+                        help_size = help_text.get_rect()[2:]
+                        self.blit_list.append((help_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
+                        current_height += help_size[1]
+
+                    current_height += self.PADDING_TEXT[1] * 2
+
+                          
+                    if self._draw_button('Back',
+                                           mouse_hover['quit'], 
+                                           current_height,
+                                           -1):
+                        mouse_hover['quit'] = True
+                        if game_flags['clicked']:
+                            game_data['overlay'] = 'options'
+                    else:
+                        mouse_hover['quit'] = False
+                    if self._draw_button('About',
+                                           mouse_hover['new'], 
+                                           current_height,
+                                           1):
+                        mouse_hover['new'] = True
+                        if game_flags['clicked']:
+                            game_data['overlay'] = 'about'
+                    else:
+                        mouse_hover['new'] = False
+                    
+                    current_height += self.PADDING_TEXT[1]
                     
                 
-                if game_data['overlay'] in ('options', 'gameend'):
+                elif game_data['overlay'] == 'about':
+                    
+                    text_chunks = [
+                    'Version: 1.0 (December 2015)',
+                    'Website: http://peterhuntvfx.co.uk',
+                    'Email: peterhuntvfx@yahoo.com',
+                    ]
+                    
+                    for chunk in text_chunks:
+                        if not chunk:
+                            current_height += self.PADDING_TEXT[1]
+                            continue
+                        help_text = self.font_md.render(chunk, 1, BLACK)
+                        help_size = help_text.get_rect()[2:]
+                        self.blit_list.append((help_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
+                        current_height += help_size[1]
+                    
+                    current_height += self.PADDING_TEXT[1]
+                    
+                    text_chunks = [
+                    'If you have any questions or feedback please feel free',
+                    'to get in touch via email.',
+                    '',
+                    '',
+                    'This is the very first version and only tested by me, so',
+                    'some parts are be a little rough around the edges, and',
+                    "there may be a few bugs I haven't found yet."
+                    ]
+                    
+                    for chunk in text_chunks:
+                        if not chunk:
+                            current_height += self.PADDING_TEXT[1]
+                            continue
+                        help_text = self.font_sm.render(chunk, 1, BLACK)
+                        help_size = help_text.get_rect()[2:]
+                        self.blit_list.append((help_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
+                        current_height += help_size[1]
+                    
+                    current_height += self.PADDING_TEXT[1] * 2
+                    
+                    if self._draw_button('Back',
+                                           mouse_hover['quit'], 
+                                           current_height):
+                        mouse_hover['quit'] = True
+                        if game_flags['clicked']:
+                            game_data['overlay'] = 'instructions'
+                    else:
+                        mouse_hover['quit'] = False
+                        
+                    current_height += self.PADDING_TEXT[1] * 2
+                
+                elif game_data['overlay'] in ('options', 'gameend'):
                     
                     #Determine which style menu to use
                     in_progress = (game_data['move_number'] or game_flags['pending_move']) and game_data['overlay'] != 'gameend'
@@ -2087,7 +2269,7 @@ class RunPygame(object):
                             or not (key[pygame.K_RALT] or key[pygame.K_LALT])):
                         
                         #Change number of segments
-                        options = ['+', '-', '({})'.format(segments)]
+                        options = ['Add', 'Remove', '({})'.format(segments)]
                         option_len = len(options)
                         options = options[:option_len - (segments == self.C3DObject.segments)]
                         params = []
@@ -2209,8 +2391,10 @@ class RunPygame(object):
                     else:
                         mouse_hover['quit'] = False
                         
+                    current_height += self.PADDING_TEXT[1] * 2
+                        
                 #Draw background
-                background_square = (screen_width_offset, header_PADDING_TEXT, self.OVERLAY_WIDTH, current_height + self.PADDING_TEXT[1] * 2)
+                background_square = (screen_width_offset, header_PADDING_TEXT, self.OVERLAY_WIDTH, current_height)
                 pygame.draw.rect(self.screen, WHITE, background_square, 0)
                 pygame.draw.rect(self.screen, BLACK, background_square, 1)
                 
@@ -2220,6 +2404,44 @@ class RunPygame(object):
                 
                 for i in self.blit_list:
                     self.screen.blit(*i)
+                    
+                #Draw example in instructions menu
+                if dd is not None:
+                    
+                    for i in c3d.range_data:
+                        if c3d.grid_data[i] != '' or i == game_flags['hover']:
+                        
+                            chunk = i / c3d.segments_squared
+                            coordinate = list(dd.relative_coordinates[i % c3d.segments_squared])
+                            coordinate[0] += dd.offset[0]
+                            coordinate[1] += dd.offset[1] - chunk * dd.chunk_height
+                            
+                            square = [coordinate,
+                                      (coordinate[0] + dd.size_x_sm,
+                                       coordinate[1] - dd.size_y_sm),
+                                      (coordinate[0],
+                                       coordinate[1] - dd.size_y_sm * 2),
+                                      (coordinate[0] - dd.size_x_sm,
+                                       coordinate[1] - dd.size_y_sm),
+                                      coordinate]
+                          
+                          
+                            if c3d.grid_data[i] != '':
+                                j = c3d.grid_data[i]
+                                
+                                pygame.draw.polygon(self.screen,
+                                                    GREEN,
+                                                    [self.to_canvas(*corner)
+                                                     for corner in square],
+                                                    0)
+                    
+                    
+                    for line in dd.line_coordinates:
+                        pygame.draw.aaline(self.screen,
+                                           BLACK,
+                                           self.to_canvas(*line[0]),
+                                           self.to_canvas(*line[1]),
+                                           1)
             
             
             pygame.display.flip()
@@ -2261,7 +2483,7 @@ class RunPygame(object):
         return False
         
         
-    def _draw_options(self, message, options, params, screen_width_offset, current_height):
+    def _draw_options(self, message, options, params, screen_width_offset, current_height, custom_font=None):
         """Draw a list of options and check for inputs.
         
         Parameters:
@@ -2285,11 +2507,13 @@ class RunPygame(object):
             current_height (int/float): The Y position to draw the
                 text.
         """
-        message_text = self.font_md.render(message, 1, BLACK)
+        if custom_font is None:
+            custom_font = self.font_md
+        message_text = custom_font.render(message, 1, BLACK)
         message_size = message_text.get_rect()[2:]
         self.blit_list.append((message_text, (self.PADDING_TEXT[0] + screen_width_offset, current_height)))
         
-        option_text = [self.font_md.render(i, 1, BLACK) for i in options]
+        option_text = [custom_font.render(i, 1, BLACK) for i in options]
         option_size = [i.get_rect()[2:] for i in option_text]
         option_square_list = []
     
@@ -2319,7 +2543,7 @@ class RunPygame(object):
             rect_colour, text_colour = option_colours
             
             self.rect_list.append([rect_colour, option_square])
-            self.blit_list.append((self.font_md.render(options[i], 1, text_colour), (width_offset, current_height)))
+            self.blit_list.append((custom_font.render(options[i], 1, text_colour), (width_offset, current_height)))
         
         x, y = pygame.mouse.get_pos()
         selected_square = None
