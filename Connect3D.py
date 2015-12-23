@@ -5,13 +5,17 @@ import time
 import pygame
 import math
 import requests
+import logging
+logging.getLogger('requests').setLevel(logging.WARNING)
 from collections import defaultdict
 class Connect3DError(Exception):
     pass
 try:
+    #Currently unable to get pygame for android working
     import android
 except ImportError:
     android = None
+VERSION = '1.0'
 
     
 BACKGROUND = (250, 250, 255)
@@ -37,6 +41,8 @@ def mix_colour(*args):
 class Connect3D(object):
     """Class to store and use the Connect3D game data.
     The data is stored in a 1D list, but is converted to a 3D representation for the user.
+    
+    This needs to be cleaned up now pygame is done.
     """
     player_symbols = 'XO'
     default_segments = 4
@@ -1554,6 +1560,7 @@ class RunPygame(object):
                 ifttt_url = 'https://maker.ifttt.com/trigger/{}/with/key/{}'
                 headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
                 ifttt_content = [
+                    'Version: {}'.format(VERSION),
                     'Date: {}'.format(time.time()),
                     'Time taken: {}'.format(time.time() - game_data['start_time']),
                     'Winner: {}'.format(game_flags['winner']),
@@ -1565,8 +1572,11 @@ class RunPygame(object):
                     'Shuffle: {}'.format(game_data['shuffle'][0]),
                     'Debug: {}'.format(game_data['debug'])
                 ]
-                requests.post(ifttt_url.format(ifttt_name, ifttt_key), 
-                              json={'value1': '<br>'.join(ifttt_content)})
+                try:
+                    requests.post(ifttt_url.format(ifttt_name, ifttt_key), 
+                                  json={'value1': '<br>'.join(ifttt_content)})
+                except requests.exceptions.ConnectionError:
+                    pass
                               
             #Reset game loop
             game_flags['recalculate'] = False
@@ -1895,7 +1905,7 @@ class RunPygame(object):
             if not game_flags['disable_background_clicks']:
                 if (game_flags['clicked'] == 1 and not block_data['taken']) or ai_turn is not None:
                     game_flags['pending_move'] = [self.player, ai_turn if ai_turn is not None else block_data['id']]
-                    misc_data['pending_move_start'] = frame_time + moving_wait
+                    misc_data['pending_move_start'] = time.time() + moving_wait
                     self._next_player()
                     continue
                    
