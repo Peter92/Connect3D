@@ -4,6 +4,7 @@ import random
 import time
 import pygame
 import math
+import requests
 from collections import defaultdict
 class Connect3DError(Exception):
     pass
@@ -247,8 +248,13 @@ class Connect3D(object):
         
         if play_data is not None and range_data is not None:
             if not all(grid_data[i] for i in play_data) or not sorted(set(range_data)) == range(pow(segments, 3)):
-                play_data = None
                 range_data = None
+                play_data = None
+        if range_data is None:
+            range_data = range(pow(segments, 3))
+        if play_data is None:
+            play_data = []
+
         new_c3d_instance.play_data = play_data
         new_c3d_instance.range_data = range_data
         
@@ -1462,7 +1468,7 @@ class RunPygame(object):
         new_c3d = Connect3D.from_list
         
         #Import the font
-        self.font_file = 'libtype.dll'
+        self.font_file = 'Miss Monkey.ttf'
         try:
             pygame.font.Font(self.font_file, 0)
         except IOError:
@@ -1486,7 +1492,8 @@ class RunPygame(object):
                      'move_number': 0,
                      'shuffle': [shuffle_level, 3],
                      'debug': False,
-                     'offset': offset}
+                     'offset': offset,
+                     'start_time': time.time()}
         misc_data = {'pending_move_start': 0,
                      'shuffle_count': 0,
                      'temp_fps': self.FPS_MAIN,
@@ -1533,12 +1540,34 @@ class RunPygame(object):
         self._set_fps(self.FPS_MAIN)
         segments = self.C3DObject.segments
         game_flags = {'reset': True}
+        send_request = False
         while True:
             self.clock.tick(self._fps or self.FPS_IDLE)
             tick_data['new'] = pygame.time.get_ticks()
             frame_time = time.time()
             tick_data['total'] += 1
             
+            #Just for a bit of stats tracking when the game is won
+            if send_request:
+                ifttt_key = 'bnHbA0p4ecI5X0eaoxm7CdzEKIek_9hI1u7fUfIl8HR'
+                ifttt_name = 'Connect3D'
+                ifttt_url = 'https://maker.ifttt.com/trigger/{}/with/key/{}'
+                headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+                ifttt_content = [
+                    'Date: {}'.format(time.time()),
+                    'Time taken: {}'.format(time.time() - game_data['start_time']),
+                    'Winner: {}'.format(game_flags['winner']),
+                    'Players: {}'.format(player_difficulties),
+                    'Grid Data: {}'.format(''.join(str(i) if i != '' else '_' for i in self.C3DObject.grid_data)),
+                    'Range Data: {}'.format(' '.join(map(str, self.C3DObject.range_data))),
+                    'Play Data: {}'.format(', '.join(map(str, self.C3DObject.play_data))),
+                    'Segments: {}'.format(self.C3DObject.segments),
+                    'Shuffle: {}'.format(game_data['shuffle'][0]),
+                    'Debug: {}'.format(game_data['debug'])
+                ]
+                requests.post(ifttt_url.format(ifttt_name, ifttt_key), 
+                              json={'value1': '<br>'.join(ifttt_content)})
+                              
             #Reset game loop
             game_flags['recalculate'] = False
             game_flags['mouse_used'] = False
@@ -1546,9 +1575,11 @@ class RunPygame(object):
             game_flags['disable_background_clicks'] = False
             game_flags['hover'] = None
             self._fps = None
+            send_request = False
             
             #Reset the game
             if game_flags['reset']:
+                game_data['start_time'] = time.time()
                 game_data['move_number'] = 0
                 game_data['shuffle'][0] = shuffle_level
                 game_data['players'] = (p1_player, p2_player)
@@ -1579,11 +1610,15 @@ class RunPygame(object):
                 
             #Check if no spaces are left
             if all(i in (0, 1) for i in self.C3DObject.grid_data) or not game_flags['points_left']:
-                if not game_flags['winner'] or game_data['overlay'] == 'options':
+                
+                if game_flags['winner'] is None or game_data['overlay'] == 'options':
+                    if game_flags['winner'] is None:
+                        send_request = True
                     game_flags['winner'] = self.C3DObject._get_winning_player()
                     player_difficulties = [get_bot_difficulty(i, _debug=True) for i in game_data['players']]
                     game_data['overlay'] = 'gameend'
-            
+                
+                
             #Delay each go
             if game_flags['pending_move']:
                 game_flags['disable_background_clicks'] = True
@@ -1593,6 +1628,7 @@ class RunPygame(object):
                     attempted_move = self.C3DObject.make_move(*game_flags['pending_move'])
                     
                     if attempted_move is not None:
+                        self.C3DObject.play_data.append((self.C3DObject.range_data[attempted_move], game_flags['pending_move'][0]))
                         game_data['move_number'] += 1
                         self.C3DObject.update_score()
                         misc_data['shuffle_count'] += 1
@@ -2269,7 +2305,7 @@ class RunPygame(object):
                             or not (key[pygame.K_RALT] or key[pygame.K_LALT])):
                         
                         #Change number of segments
-                        options = ['Add', 'Remove', '({})'.format(segments)]
+                        options = ['Remove', 'Add', '({})'.format(segments)]
                         option_len = len(options)
                         options = options[:option_len - (segments == self.C3DObject.segments)]
                         params = []
@@ -2295,7 +2331,7 @@ class RunPygame(object):
                             
                             if game_flags['clicked']:
                                 if selected_option in (0, 1):
-                                    segments += 1 - 2 * selected_option
+                                    segments += 2 * selected_option - 1
                                     segments = max(1, segments)
                                 if not in_progress and self.C3DObject.segments != segments:
                                     self.C3DObject.segments = segments
