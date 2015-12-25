@@ -4,9 +4,8 @@ import random
 import time
 import pygame
 import math
-import requests
-import logging
-logging.getLogger('requests').setLevel(logging.WARNING)
+import json
+import urllib2
 from collections import defaultdict
 class Connect3DError(Exception):
     pass
@@ -1520,16 +1519,25 @@ class RunPygame(object):
                        'continue': False,
                        'new': False,
                        'instructions': False,
-                       'directions': None}
+                       'directions': None,
+                       'time_limit_main': None,
+                       'time_limit_add': None}
         held_keys = {'angle': 0,
                      'size': 0,
                      'x': 0,
                      'y': 0}
                      
+        turn_time_total = 200
+        turn_time_enabled = False
+        turn_time = {'enabled': turn_time_enabled,
+                     'total': turn_time_total,
+                     'current': 0,
+                     'increment': 10}
+                     
         mouse_data = pygame.mouse.get_pos()
                      
         #How long to wait before accepting a move
-        moving_wait = 0.6
+        moving_wait = 0.5
         
         #For controlling how the angle and length of grid change
         angle_increment = 0.25
@@ -1547,9 +1555,11 @@ class RunPygame(object):
         segments = self.C3DObject.segments
         game_flags = {'reset': True}
         send_request = False
+        frame_time = time.time()
         while True:
             self.clock.tick(self._fps or self.FPS_IDLE)
             tick_data['new'] = pygame.time.get_ticks()
+            old_frame_time = frame_time
             frame_time = time.time()
             tick_data['total'] += 1
             
@@ -1570,14 +1580,16 @@ class RunPygame(object):
                     'Play Data: {}'.format(', '.join(map(str, self.C3DObject.play_data))),
                     'Segments: {}'.format(self.C3DObject.segments),
                     'Shuffle: {}'.format(game_data['shuffle'][0]),
+                    'Turn Time: {}'.format(turn_time['total'] if turn_time['enabled'] else 0),
                     'Debug: {}'.format(game_data['debug'])
                 ]
                 try:
-                    requests.post(ifttt_url.format(ifttt_name, ifttt_key), 
-                                  json={'value1': '<br>'.join(ifttt_content)})
-                except requests.exceptions.ConnectionError:
+                    req = urllib2.Request(ifttt_url.format(ifttt_name, ifttt_key))
+                    req.add_header('Content-Type', 'application/json')
+                    response = urllib2.urlopen(req, json.dumps({'value1': '<br>'.join(ifttt_content)}))
+                except urllib2.URLError:
                     pass
-                              
+            
             #Reset game loop
             game_flags['recalculate'] = False
             game_flags['mouse_used'] = False
@@ -1586,15 +1598,21 @@ class RunPygame(object):
             game_flags['hover'] = None
             self._fps = None
             send_request = False
+            switched_player_flag = False
             
             #Reset the game
             if game_flags['reset']:
+                switched_player = False
+                turn_time['total'] = turn_time_total
+                turn_time['current'] = turn_time['total'] + 0.99
+                turn_time['enabled'] = turn_time_enabled
                 game_data['start_time'] = time.time()
                 game_data['move_number'] = 0
                 game_data['shuffle'][0] = shuffle_level
                 game_data['players'] = (p1_player, p2_player)
                 self.C3DObject.segments = segments
                 self.C3DObject = Connect3D(self.C3DObject.segments)
+                turn_start = time.time()
                 
                 block_data = {'id': None,
                               'taken': False}
@@ -1638,6 +1656,8 @@ class RunPygame(object):
                     attempted_move = self.C3DObject.make_move(*game_flags['pending_move'])
                     
                     if attempted_move is not None:
+                        turn_time['current'] = turn_time['total'] + 0.99
+                        switched_player = False
                         self.C3DObject.play_data.append((self.C3DObject.range_data[attempted_move], game_flags['pending_move'][0]))
                         game_data['move_number'] += 1
                         self.C3DObject.update_score()
@@ -1676,13 +1696,31 @@ class RunPygame(object):
                         self.C3DObject.grid_data[game_flags['pending_move'][1]] = 9 - game_flags['pending_move'][0]
                     except TypeError:
                         print game_flags['pending_move'], ai_turn
-                        raise TypeError('something went wrong, trying to find the cause of this')
+                        raise TypeError("something went wrong, email me the above text as I'm trying to find the cause of this")
+            
+            #Update the time
+            elif turn_time['enabled'] and not game_data['overlay'] and turn_time['current'] is not None:
+                turn_time['current'] -= frame_time - old_frame_time
+                if turn_time['current'] < 1:
+                    switched_player = self.player_names[self.player]
+                    self._next_player()
+                    turn_time['current'] = turn_time['total'] + 0.99
+                    switched_player_flag = True
                 
             #Run the AI
             ai_turn = None
             if game_data['players'][self.player] is not False:
-                if not game_flags['disable_background_clicks'] and game_flags['winner'] is None:
-                    ai_turn = ArtificialIntelligence(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
+                if not switched_player_flag:
+                    if not game_flags['pending_move']:
+                        turn_time['current'] = None
+                    if not game_flags['disable_background_clicks'] and game_flags['winner'] is None:
+                        ai_turn = ArtificialIntelligence(self.C3DObject, self.player, difficulty=game_data['players'][self.player]).calculate_next_move()
+            
+                #Fix to stop the countdown showing
+                else:
+                    switched_player_flag = False
+                    if not game_flags['pending_move']:
+                        turn_time['current'] = None
                 
             
             #Event loop
@@ -1907,6 +1945,7 @@ class RunPygame(object):
                     game_flags['pending_move'] = [self.player, ai_turn if ai_turn is not None else block_data['id']]
                     misc_data['pending_move_start'] = time.time() + moving_wait
                     self._next_player()
+                    turn_start = time.time()
                     continue
                    
                    
@@ -1979,7 +2018,9 @@ class RunPygame(object):
             self._draw_score(players=game_data['players'],
                              winner=game_flags['winner'], 
                              pending_move=game_flags['pending_move'], 
-                             flipped=game_flags['flipped'])
+                             flipped=game_flags['flipped'],
+                             time_left=turn_time['current'] if turn_time['enabled'] else None,
+                             switched_player=switched_player)
             
             
             if game_data['debug']:
@@ -2154,7 +2195,7 @@ class RunPygame(object):
                 elif game_data['overlay'] == 'about':
                     
                     text_chunks = [
-                    'Version: 1.0 (December 2015)',
+                    'Version: {} (December 2015)'.format(VERSION),
                     'Website: http://peterhuntvfx.co.uk',
                     'Email: peterhuntvfx@yahoo.com',
                     ]
@@ -2308,6 +2349,60 @@ class RunPygame(object):
                         if game_flags['clicked']:
                             end_when_no_points_left = not selected_option
                     
+                    
+                    #Ask about time limit
+                    options = ['Yes', 'No']
+                    params = []
+                    for i in range(option_len):
+                        params.append([i != turn_time_enabled,
+                                       i != turn_time['enabled'],
+                                       mouse_hover['time_limit_main'] is not None and i != mouse_hover['time_limit_main']])
+
+                    option_data = self._draw_options('Use a turn time limit? ',
+                                                     options,
+                                                     params,
+                                                     screen_width_offset,
+                                                     current_height)
+                    selected_option, options_size = option_data
+                    current_height += options_size
+                    
+                    mouse_hover['time_limit_main'] = None
+                    if selected_option is not None:
+                        mouse_hover['time_limit_main'] = not selected_option
+                        if game_flags['clicked']:
+                            turn_time_enabled = not selected_option
+                            if not in_progress:
+                                turn_time['enabled'] = turn_time_enabled
+                    
+                    if not turn_time_enabled:
+                        current_height += subheader_PADDING_TEXT
+                    else:
+                        current_height += self.PADDING_TEXT[1]
+                        
+                        options = ['Decrease', 'Increase']
+                        params = []
+                        for i in range(option_len):
+                            params.append([False,
+                                           False,
+                                           i == mouse_hover['time_limit_add'] and (turn_time_total != turn_time['increment'] or i != 0)])
+
+                        option_data = self._draw_options('Limited to {} seconds '.format(turn_time_total),
+                                                         options,
+                                                         params,
+                                                         screen_width_offset,
+                                                         current_height)
+                        mouse_hover['time_limit_add'], options_size = option_data
+                        current_height += options_size + subheader_PADDING_TEXT
+                        
+                        if mouse_hover['time_limit_add'] is not None:
+                            if game_flags['clicked']:
+                                turn_time_total += turn_time['increment'] * (mouse_hover['time_limit_add'] * 2 - 1)
+                                turn_time_total = max(turn_time['increment'], turn_time_total)
+                                turn_time_total = min(100000, turn_time_total)
+                                if not in_progress:
+                                    turn_time['total'] = turn_time_total
+                                    turn_time['current'] = turn_time['total'] + 0.99
+                                
                                 
                     #Toggle hidden debug options with shift+alt+q
                     if not (not key[pygame.K_q] 
@@ -2613,21 +2708,21 @@ class RunPygame(object):
             text = text.replace(i, ')')
         return text
     
-    def _draw_score(self, players, winner, pending_move=False, flipped=False):
+    def _draw_score(self, players, winner, pending_move=False, flipped=False, time_left=None, switched_player=False):
         """Draw the title."""
         
-        #Format scores
-        point_marker = '/'
-        p0_points = self.C3DObject.current_points[0]
-        p1_points = self.C3DObject.current_points[1]
         
-        p0_font_top = self.font_md.render('{}'.format(self.player_names[0]), 1,  BLACK, self.player_colours[0])
-        p1_font_top = self.font_md.render('{}'.format(self.player_names[1]), 1, BLACK, self.player_colours[1])
-        p0_font_bottom = self.font_lg.render(point_marker * p0_points, 1,  BLACK)
-        p1_font_bottom = self.font_lg.render(point_marker * p1_points, 1,  BLACK)
         
-        p_size_top = p1_font_top.get_rect()[2:]
-        p_size_bottom = p1_font_bottom.get_rect()[2:]
+        if time_left is not None:
+            time_left = int(time_left)
+            time_message = str(time_left) + ' second'
+            if time_left != 1:
+                time_message += 's'
+            time_font = self.font_sm.render(time_message, 1, (0, 0, 0))
+            time_size = time_font.get_rect()[2:]
+            self.screen.blit(time_font,
+                             ((self.width - time_size[0]) / 2,
+                              self.PADDING_TEXT[1] * 1))
         
         if winner is None:
             if pending_move:
@@ -2647,13 +2742,48 @@ class RunPygame(object):
         
         
         
-        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.PADDING_TEXT[1] * 3))
-        self.screen.blit(p0_font_top, (self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
-        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+        #Format scores
+        point_marker = '/'
+        p0_points = self.C3DObject.current_points[0]
+        p1_points = self.C3DObject.current_points[1]
+        
+        p0_font_top = self.font_md.render('{}'.format(self.player_names[0]), 1,  BLACK, self.player_colours[0])
+        p1_font_top = self.font_md.render('{}'.format(self.player_names[1]), 1, BLACK, self.player_colours[1])
+        p_size_top = p1_font_top.get_rect()[2:]
+        
+        p0_height = self.PADDING_TEXT[1] + p_size_top[1]
+        for i in range(p0_points / 10 + 1):
+            num_points = 10 if (i + 1) * 10 < p0_points else p0_points % 10
+            p0_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
+            p_size_bottom = p0_font_bottom.get_rect()[2:]
+            self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], p0_height))
+            p0_height += p_size_bottom[1] - self.PADDING_TEXT[1]
+            
+        p1_height = self.PADDING_TEXT[1] + p_size_top[1]
+        for i in range(p1_points / 10 + 1):
+            num_points = 10 if (i + 1) * 10 < p1_points else p1_points % 10
+            p1_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
+            p_size_bottom = p1_font_bottom.get_rect()[2:]
+            self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], p1_height))
+            p1_height += p_size_bottom[1] - self.PADDING_TEXT[1]
+
+        
         self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
         self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
 
-        if flipped:
+        
+        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.PADDING_TEXT[1] * 3))
+        self.screen.blit(p0_font_top, (self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+
+        if switched_player:
+            flipped_message = 'Switched players! ({} took too long)'.format(switched_player)
+            flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
+            flipped_size = flipped_font.get_rect()[2:]
+            self.screen.blit(flipped_font,
+                             ((self.width - flipped_size[0]) / 2,
+                              self.PADDING_TEXT[1] * 3 + go_size[1]))
+        elif flipped:
             flipped_message = 'Grid was flipped!'
             flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
             flipped_size = flipped_font.get_rect()[2:]
