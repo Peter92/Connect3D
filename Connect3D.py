@@ -14,7 +14,7 @@ try:
     import android
 except ImportError:
     android = None
-VERSION = '1.0'
+VERSION = '1.0.1'
 
     
 BACKGROUND = (250, 250, 255)
@@ -2753,7 +2753,7 @@ class RunPygame(object):
         
         p0_height = self.PADDING_TEXT[1] + p_size_top[1]
         for i in range(p0_points / 10 + 1):
-            num_points = 10 if (i + 1) * 10 < p0_points else p0_points % 10
+            num_points = 10 if (i + 1) * 10 <= p0_points else p0_points % 10
             p0_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
             p_size_bottom = p0_font_bottom.get_rect()[2:]
             self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], p0_height))
@@ -2761,7 +2761,7 @@ class RunPygame(object):
             
         p1_height = self.PADDING_TEXT[1] + p_size_top[1]
         for i in range(p1_points / 10 + 1):
-            num_points = 10 if (i + 1) * 10 < p1_points else p1_points % 10
+            num_points = 10 if (i + 1) * 10 <= p1_points else p1_points % 10
             p1_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
             p_size_bottom = p1_font_bottom.get_rect()[2:]
             self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], p1_height))
