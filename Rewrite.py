@@ -1,4 +1,5 @@
 from __future__ import division
+from collections import defaultdict
 import random
 import base64
 
@@ -22,11 +23,6 @@ class Connect3D(object):
         self._range_md = range(self._size_squared)
         self._range_lg = range(self._size_cubed)
         
-        #Main parts
-        self.range = bytearray(self._range_lg)
-        self.grid = bytearray(0 for _ in self.range)
-        self.flip = FlipGrid(self)
-        
         #Calculate the edge numbers for each direction
         self.edges = {'U': list(self._range_md),
                       'D': range(self._size_squared * (self.size - 1), self._size_squared * self.size),
@@ -45,6 +41,13 @@ class Connect3D(object):
                      'F': self.size,
                      'B': -self.size,
                      ' ': 0}
+        
+        #Main parts
+        self.range = bytearray(self._range_lg)
+        self.grid = bytearray(0 for _ in self.range)
+        self.flip = FlipGrid(self)
+        self.directions = DirectionCalculation(self)
+        self.calculate_score()
 
     def __repr__(self):
         output = (bytearray([self._player]) + bytearray([self.num_players])
@@ -110,11 +113,52 @@ class Connect3D(object):
             self.grid = all_flips[i](self.grid)
             self.range = all_flips[i](self.range)
 
-    def load_grid(self, grid):
+    def set_grid(self, grid, update_score=True):
+        """Set a new grid, used for preview purposes."""
         grid = bytearray(grid)
         if len(grid) != self._size_cubed:
             raise ValueError("grid length must be '{}' not '{}'".format(self._size_cubed, len(grid)))
         self.grid = grid
+        if update_score:
+            self.calculate_score()
+        return self
+        
+    def calculate_score(self):
+        
+        self.score = defaultdict(int)
+        self._score_hashes = set()
+        
+        for id in self._range_lg:
+            self._point_score(id)
+        
+        return self
+    
+    def _point_score(self, id):
+        player = self.grid[id]
+        if not player:
+            return
+        
+        for movement, invalid in self.directions.reverse_directions:
+            count = 1
+            list_match = [id]
+            
+            #Search both directions
+            for i in (0, 1):
+                point = id
+                while point not in invalid[i] and 0 <= point < self._size_cubed:
+                    point += movement * (-1 if i else 1)
+                    if self.grid[point] == player:
+                        count += 1
+                        list_match.append(point)
+                    else:
+                        break
+                
+            #Add a point if enough matches
+            if count == self.size:
+                row_hash = hash(tuple(sorted(list_match)))
+                if row_hash not in self._score_hashes:
+                    self._score_hashes.add(row_hash)
+                    self.score[player] += 1
         
 
 class Connect3DGame(object):
@@ -189,7 +233,67 @@ class Connect3DGame(object):
         new_instance.core.range = data_range
         return new_instance
         
-
+class DirectionCalculation(object):
+    """Calculate which directions are possible to move in, based on the 6 directions.
+    Any combination is fine, as long as it doesn't go back on itself, hence why X, Y 
+    and Z have been given two values each, as opposed to just using six values.
+    
+    Because the code to calculate score will look in one direction then reverse it, 
+    the list then needs to be trimmed down to remove any duplicate directions (eg. 
+    up/down and upright/downleft are both duplicates)
+    
+    The code will output the following results, it is possible to use these instead of the class.
+        direction_group = {'Y': 'UD', 'X': 'LR', 'Z': 'FB', ' ': ' '}
+        opposite_direction = ('B', 'D', 'DF', 'LDB', 'DB', 'L', 'LUB', 'LUF', 'LF', 'RU', 'LB', 'LDF', 'RD')
+    """
+    
+    def __init__(self, c3d):
+        direction_group = {}
+        direction_group['X'] = 'LR'
+        direction_group['Y'] = 'UD'
+        direction_group['Z'] = 'FB'
+        direction_group[' '] = ' '
+        
+        #Come up with all possible directions
+        all_directions = set()
+        for x in [' ', 'X']:
+            for y in [' ', 'Y']:
+                for z in [' ', 'Z']:
+                    x_directions = list(direction_group[x])
+                    y_directions = list(direction_group[y])
+                    z_directions = list(direction_group[z])
+                    for i in x_directions:
+                        for j in y_directions:
+                            for k in z_directions:
+                                all_directions.add((i+j+k).replace(' ', ''))
+        
+        #Narrow list down to remove any opposite directions
+        self.opposite_direction = all_directions.copy()
+        for i in all_directions:
+            if i in self.opposite_direction:
+                new_direction = ''
+                for j in list(i):
+                    for k in direction_group.values():
+                        if j in k:
+                            new_direction += k.replace(j, '')
+                self.opposite_direction.remove(new_direction)
+    
+        self.reverse_directions = []
+        for direction in self.opposite_direction:
+            
+            #Get a list of directions and calculate movement amount
+            directions = [list(direction)]
+            directions += [[j.replace(i, '') for i in directions[0] for j in direction_group.values() if i in j]]
+            direction_movement = sum(c3d.move[j] for j in directions[0])
+                            
+            #Build list of invalid directions
+            invalid_directions = [[c3d.edges[j] for j in directions[k]] for k in (0, 1)]
+            invalid_directions = [join_list(j) for j in invalid_directions]
+            
+            self.reverse_directions.append((direction_movement, invalid_directions))
+        
+            
+            
 def split_list(x, n):
     """Split a list by n characters."""
     n = int(n)
@@ -276,8 +380,17 @@ class FlipGrid(object):
     def reverse(self, data):
         """Reverse the grid."""
         return data[::-1]
-        
 
+g = [0 for i in range(27)]
+g[0] = 3
+g[1] = 3
+g[2] = 3
+g[3] = 1
+g[5] = 1
+g[4] = 1
+g[6] = 1
 c = Connect3DGame.load(bytearray(range(27)))
+d = Connect3D(3).set_grid(g)
 c.core.shuffle()
-print c.core
+print d
+print d.score
