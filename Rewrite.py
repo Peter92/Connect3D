@@ -1,11 +1,11 @@
 from __future__ import division
 import random
-'''
-To do:
-    str(type(x))[7:-2] to type(x)[0]
-'''
+import base64
 
 class Connect3D(object):
+    """Class for holding the game information.
+    Supports numbers up to 255.
+    """
     DEFAULT_SIZE = 4
     DEFAULT_PLAYERS = 2
     DEFAULT_SHUFFLE_TURNS = 3
@@ -21,7 +21,13 @@ class Connect3D(object):
         except AttributeError:
             self._player = random.randint(1, self.num_players)
 
+    def __repr__(self):
+        output = (bytearray([self._player]) + bytearray([self.num_players])
+                  + self.grid + self.range + bytearray([':']) + self.progress)
+        return "Connect3D.load('{}')".format(base64.b64encode(output))
+
     def __str__(self):
+        """Print the current state of the grid."""
         
         grid_range = range(self.size)
         grid_output = []
@@ -64,17 +70,24 @@ class Connect3D(object):
         """Calculate the number of segments and split the data into the correct sections.
         
         Parameters:
-            x (bytearray): Data to split.
+            x (string): Data to split. 
+                Must be a base 64 encoded bytearray.
                 Acceptable inputs:
                     bytearray(grid_data)
-                    bytearray(current_player + grid_data + range_data + progress_data)
+                    bytearray(current_player + num_players + grid_data + range_data + progress_data)
         
         Output:
             (num_segments, current_player, grid_data, range_data, progress_data)
         """
-    
-        if not isinstance(data, bytearray):
-            raise ValueError("'{}' input must be a 'bytearray'".format(str(type(data))[7:-2]))
+        if not isinstance(data, (bytearray, str)):
+            raise ValueError("'{}' input must be a 'bytearray'".format(type(data).__name__))
+        if isinstance(data, str):
+            try:
+                data = bytearray(base64.b64decode(data))
+                if not data.strip():
+                    raise TypeError
+            except TypeError:
+                raise TypeError("input data is not correctly encoded")
             
         data = data.split(':')
         cube_root = pow(len(data[0]), 1/3)
@@ -84,7 +97,7 @@ class Connect3D(object):
             data_player = None
             data_players = None
             data_grid = data[0]
-            data_range = bytearray(range(len(data)))
+            data_range = bytearray(range(len(data[0])))
             data_progress = bytearray([])
         
         #All the data is input
@@ -93,7 +106,7 @@ class Connect3D(object):
             data_players = data[0].pop(0)
             cube_root = pow(len(data[0])/2, 1/3)
             if cube_root != round(cube_root):
-                raise ValueError("invalid input length: '{}'".format(len(''.join(map(str, data))) + 2))
+                raise ValueError("invalid input length: '{}'".format(len(''.join(map(str, data[0]))) + 2))
                 
             data_length = int(pow(cube_root, 3))
             data_grid = data[0][:data_length]
@@ -110,7 +123,7 @@ class Connect3D(object):
         return new_instance
 
 c = Connect3D.load(bytearray(range(27)))
-print c
+Connect3D.load('AQIAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRoAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRo6')
 
 def split_list(x, n):
     """Split a list by n characters."""
