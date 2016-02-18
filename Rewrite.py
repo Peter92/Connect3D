@@ -4,11 +4,33 @@ from operator import itemgetter
 import random
 import base64
 import zlib
+import math
 import cPickle
 try:
     import pygame
+    from FrameLimit import GameTime, GameTimeLoop
 except ImportError:
     pygame = None
+    
+BACKGROUND = (250, 250, 255)
+LIGHTBLUE = (86, 190, 255)
+LIGHTGREY = (200, 200, 200)
+GREY = (128, 128, 128)
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+GREEN = (0, 255, 0)
+YELLOW = (255, 255, 0)
+SELECTION = {'Default': [WHITE, LIGHTGREY],
+             'Hover': [None, BLACK],
+             'Waiting': [None, BLACK],
+             'Selected': [GREEN, None]}
+             
+def mix_colour(*args):
+    mixed_colour = [0, 0, 0]
+    num_colours = len(args)
+    for colour in range(3):
+        mixed_colour[colour] = sum(i[colour] for i in args) / num_colours
+    return mixed_colour
     
 def get_max_keys(x):
     """Return a list of every key containing the max value.
@@ -777,11 +799,300 @@ class ArtificialIntelligence(object):
                 (20, 25, 3),
                 (0, 0, 1)][level]
         
-c = Connect3DGame(shuffle_level=2)
-c.core.grid[0] = 4
-c.core.grid[1] = 5
-c.core.grid[4] = 65
-#c.play(players=(0, 5))
-#print c.core
-print c.core.__repr__()
-print eval(c.__repr__())
+
+#PYGAME STUFF
+class DrawData(object):
+    def __init__(self, C3DCore, length, angle, padding, offset):
+        self.core = C3DCore
+        self.length = length
+        self.angle = angle
+        self.padding = padding
+        self.offset = offset
+        self.recalculate()
+    
+    def recalculate(self):
+        """Perform the main calculations on the values in __init__.
+        This allows updating any of the values, such as the isometric
+        angle, without creating a new class."""
+        
+        self.size_x = self.length * math.cos(math.radians(self.angle))
+        self.size_y = self.length * math.sin(math.radians(self.angle))
+        self.x_offset = self.size_x / self.core.size
+        self.y_offset = self.size_y / self.core.size
+        self.chunk_height = self.size_y * 2 + self.padding
+        
+        self.centre = (self.chunk_height / 2) * self.core.size - self.padding / 2
+        self.size_x_sm = self.size_x / self.core.size
+        self.size_y_sm = self.size_y / self.core.size
+        
+        self.length_small = self.length / self.core.size
+        
+        self.relative_coordinates = []
+        position = (0, self.centre)
+        for j in self.core._range_sm:
+            checkpoint = position
+            for i in self.core._range_sm:
+                self.relative_coordinates.append(position)
+                position = (position[0] + self.x_offset,
+                            position[1] - self.y_offset)
+            position = (checkpoint[0] - self.x_offset,
+                        checkpoint[1] - self.y_offset)
+
+
+
+        #Absolute coordinates for pygame
+        chunk_coordinates = [(self.offset[0], self.offset[1] - i * self.chunk_height) for i in self.core._range_sm]
+
+        self.line_coordinates = [((self.offset[0] + self.size_x, self.offset[1] + self.centre - self.size_y),
+                                  (self.offset[0] + self.size_x, self.offset[1] + self.size_y - self.centre)),
+                                 ((self.offset[0] - self.size_x, self.offset[1] + self.centre - self.size_y),
+                                  (self.offset[0] - self.size_x, self.offset[1] + self.size_y - self.centre)),
+                                 ((self.offset[0], self.offset[1] + self.centre - self.size_y * 2),
+                                  (self.offset[0], self.offset[1] - self.centre))]
+
+        for i in self.core._range_sm:
+
+            chunk_height = -i * self.chunk_height
+
+            self.line_coordinates += [((self.offset[0] + self.size_x, self.offset[1] + self.centre + chunk_height - self.size_y),
+                                       (self.offset[0], self.offset[1] + self.centre + chunk_height - self.size_y * 2)),
+                                      ((self.offset[0] - self.size_x, self.offset[1] + self.centre + chunk_height - self.size_y),
+                                       (self.offset[0], self.offset[1] + self.centre + chunk_height - self.size_y * 2))]
+
+            for coordinate in self.relative_coordinates:
+                
+                start = (self.offset[0] + coordinate[0], self.offset[1] + chunk_height + coordinate[1])
+                self.line_coordinates += [(start,
+                                           (start[0] + self.size_x_sm, start[1] - self.size_y_sm)),
+                                          (start,
+                                           (start[0] - self.size_x_sm, start[1] - self.size_y_sm))]
+        
+    def game_to_block_index(self, gx, gy):
+        """Return index of block at the game coordinates gx, gy, or None if
+        there is no block at those coordinates."""
+        gx -= self.offset[0]
+        gy -= self.offset[1] - self.centre
+        z = int(gy // self.chunk_height)
+        gy -= z * self.chunk_height
+        
+        dx = gx / self.size_x_sm
+        dy = gy / self.size_y_sm
+        x = int((dy - dx) // 2)
+        y = int((dy + dx) // 2)
+        
+        n = self.segments
+        if 0 <= x < n and 0 <= y < n and 0 <= z < n:
+            return n ** 3 - 1 - (x + n * (y + n * z))
+        else:
+            return None
+            
+            
+
+class GameCore(object):
+    
+    def __init__(self, C3DGame):
+        self.C3DGame = C3DGame
+        self.WIDTH = 640
+        self.HEIGHT = 960
+        self.FPS = 30
+        self.TICKS = 120
+    
+    def resize_screen(self):
+        self.mid_point = [self.WIDTH / 2, self.HEIGHT / 2]
+        self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.RESIZABLE)
+        
+        #Set length and angle to fit on the screen
+        length = 200
+        angle = 26
+        padding = 2
+        angle_limits = (26, 35)
+        
+        freeze_edit = False
+        while True:
+            edited = False
+            self.draw = DrawData(self.C3DGame.core, length, angle, padding, self.mid_point)
+            height = self.draw.chunk_height * self.C3DGame.core.size
+            width = self.draw.size_x * 2
+            
+            
+            too_small = height < self.HEIGHT * 0.85, 
+            too_tall = height > self.HEIGHT * 0.85
+            too_thin = width < self.WIDTH * 0.85
+            too_wide = width > self.WIDTH * 0.9
+            
+            if too_wide:
+                if angle < angle_limits[1]:
+                    angle += 1
+                else:
+                    length -= 1
+                    freeze_edit = True
+                edited = True
+                    
+            if too_thin:
+                if angle > angle_limits[0]:
+                    angle -= 1
+                    edited = True
+                elif not too_tall and not freeze_edit:
+                    length += 1
+                    edited = True
+                
+            if too_tall:
+                freeze_edit = True
+                length -= 1
+                edited = True
+                
+            if not edited:
+                break
+                
+                
+        self.set_grid()
+
+    def end(self):
+        pygame.quit()
+        return
+    
+    def set_grid(self):
+        core = self.C3DGame.core
+        
+        height = self.draw.chunk_height * core.size
+        width = self.draw.size_y * 4
+        
+        self.screen_grid = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        self.screen_grid = self.screen_grid.convert_alpha()
+        #self.screen_grid.fill((255, 255, 255))
+    
+        for i in core._range_lg:
+            if not core.grid[i]:
+            
+                chunk = i / core._size_squared
+                
+                
+        #Draw grid
+        for line in self.draw.line_coordinates:
+            pygame.draw.aaline(self.screen_grid,
+                               BLACK,
+                               line[0],
+                               line[1],
+                               1)
+        '''
+            #Draw coloured squares
+            for i in self.C3DObject.range_data:
+                if self.C3DObject.grid_data[i] != '' or i == game_flags['hover']:
+                
+                    chunk = i / self.C3DObject.segments_squared
+                    coordinate = list(self.draw_data.relative_coordinates[i % self.C3DObject.segments_squared])
+                    coordinate[0] += self.draw_data.offset[0]
+                    coordinate[1] += self.draw_data.offset[1] - chunk * self.draw_data.chunk_height
+                    
+                    square = [coordinate,
+                              (coordinate[0] + self.draw_data.size_x_sm,
+                               coordinate[1] - self.draw_data.size_y_sm),
+                              (coordinate[0],
+                               coordinate[1] - self.draw_data.size_y_sm * 2),
+                              (coordinate[0] - self.draw_data.size_x_sm,
+                               coordinate[1] - self.draw_data.size_y_sm),
+                              coordinate]
+                  
+                    #Player has mouse over square
+                    block_colour = None
+                    if self.C3DObject.grid_data[i] == '':
+                    
+                        if game_data['players'][self.player] is False:
+                            block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
+                    
+                    #Square is taken by a player
+                    else:
+                        j = self.C3DObject.grid_data[i]
+                        
+                        #Square is being moved into, mix with red and white
+                        mix = False
+                        if isinstance(j, int) and j > 1:
+                            j = 9 - j
+                            moving_block = square
+                            mix = True
+                        
+                        block_colour = self.player_colours[j]
+                        
+                        if mix:
+                            block_colour = mix_colour(block_colour, GREY)
+                    
+                    if block_colour is not None:
+                        pygame.draw.polygon(self.screen,
+                                            block_colour,
+                                            [self.to_canvas(*corner)
+                                             for corner in square],
+                                            0)
+                
+                                   '''
+    
+    def play(self):
+    
+        #Initialise screen
+        pygame.init()
+        self.resize_screen()
+        self.state = 'Main'
+        
+        self.set_grid()
+        '''
+        self.draw_data = GridDrawData(self.length,
+                                 self.C3DObject.segments,
+                                 self.angle,
+                                 padding=self.angle / self.C3DObject.segments,
+                                 offset=offset)
+                                 
+                                 
+            #Update mouse information
+            if game_flags['mouse_used'] or game_flags['recalculate']:
+            
+                self._set_fps(self.FPS_MAIN)
+                    
+                mouse_data = pygame.mouse.get_pos()
+                x, y = self.to_pygame(*mouse_data)
+                block_data['id'] = self.draw_data.game_to_block_index(x, y)
+                block_data['taken'] = True
+                if block_data['id'] is not None and ai_turn is None:
+                    block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
+            
+                                 '''
+        
+        GT = GameTime(self.FPS, self.TICKS)
+        while True:
+            with GameTimeLoop(GT) as game_time:
+            
+                #Store frame specific things so you don't need to call it multiple times
+                self.frame_data = {'Redraw': False,
+                                   'Events': pygame.event.get(),
+                                   'Keys': pygame.key.get_pressed(),
+                                   'MousePos': pygame.mouse.get_pos(),
+                                   'MouseClick': pygame.mouse.get_pressed()}
+                if self.frame_data['Keys'][pygame.K_ESCAPE]:
+                    return self.end()
+                    
+                #Handle quitting and resizing window
+                for event in self.frame_data['Events']:
+                    if event.type == pygame.QUIT:
+                        return self.end()
+                    elif event.type == pygame.VIDEORESIZE:
+                        self.WIDTH, self.HEIGHT = event.dict['size']
+                        self.resize_screen()
+                        self.frame_data['Redraw'] = True
+
+                #---MAIN LOOP START---#
+                
+                
+                
+                
+                #---MAIN LOOP END---#
+                if game_time.fps:
+                    pygame.display.set_caption('{}'.format(game_time.fps))
+                    
+                if self.frame_data['Redraw']:
+                    self.screen.fill((255, 255, 255))
+                    
+                    grid_dimensions = self.screen_grid.get_size()
+                    grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_dimensions)]
+                    
+                    self.screen.blit(self.screen_grid, grid_location)
+                    pygame.display.flip()
+
+GameCore(Connect3DGame()).play()
