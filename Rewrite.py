@@ -27,36 +27,16 @@ class Connect3D(object):
         self._range_sm_r = self._range_sm[::-1]
         self._range_md = range(self._size_squared)
         self._range_lg = range(self._size_cubed)
-        
-        #Calculate the edge numbers for each direction
-        self.edges = {'U': list(self._range_md),
-                      'D': range(self._size_squared * (self.size - 1), self._size_squared * self.size),
-                      'R': [i * self.size + self.size - 1 for i in self._range_md],
-                      'L': [i * self.size for i in self._range_md],
-                      'F': [i * self._size_squared + self._size_squared + j - self.size
-                            for i in self._range_sm for j in self._range_sm],
-                      'B': [i * self._size_squared + j for i in self._range_sm for j in self._range_sm],
-                      ' ': []}
-                      
-        #Calculate the addition needed to move in each direction
-        self.move = {'U': -self._size_squared,
-                     'D': self._size_squared,
-                     'L': -1,
-                     'R': 1,
-                     'F': self.size,
-                     'B': -self.size,
-                     ' ': 0}
+        self._shuffle_order = []
         
         #Main parts
-        self.range = bytearray(self._range_lg)
-        self.grid = bytearray(0 for _ in self.range)
+        self.grid = bytearray(0 for _ in self._range_lg)
         self.flip = FlipGrid(self)
         self.directions = DirectionCalculation(self)
         self.calculate_score()
 
     def __repr__(self):
-        output = (bytearray([self._player]) + bytearray([self.num_players])
-                  + self.grid + self.range + bytearray([':']) + self.progress)
+        output = (bytearray([self._player]) + bytearray([self.num_players]) + self.grid)
         return "Connect3DGame.load('{}')".format(base64.b64encode(output))
 
     def __str__(self):
@@ -105,18 +85,37 @@ class Connect3D(object):
             level = self.shuffle_level
             
         #Shuffle is disabled
-        if not level and isinstance(level, bool):
+        if not level:
             return
             
-        max_shuffles = level * 3
-        shuffles = random.sample(range(max_shuffles), random.randint(0, max_shuffles - 1))
-        
         all_flips = (self.flip.fx, self.flip.fy, self.flip.fz, 
                      self.flip.rx, self.flip.ry, self.flip.rz, self.flip.reverse)
+        max_shuffles = level * 3
+        shuffles = random.sample(range(max_shuffles), random.randint(0, max_shuffles - 1))
+        shuffles.append(len(all_flips) - 1)
         
+        
+        #Perform shuffle
         for i in shuffles:
-            self.grid = all_flips[i](self.grid)
-            self.range = all_flips[i](self.range)
+            self.grid, operation = all_flips[i](self.grid)
+            self._shuffle_order.append(operation)
+        
+        #Clean shuffle order
+        new_reverse = self._shuffle_order.count('r') % 2
+        new_fx = self._shuffle_order.count('fx') % 2
+        new_fy = self._shuffle_order.count('fy') % 2
+        new_fz = self._shuffle_order.count('fz') % 2
+        new_rx = (self._shuffle_order.count('rx1') - self._shuffle_order.count('rx2')) % 4
+        new_ry = (self._shuffle_order.count('ry1') - self._shuffle_order.count('ry2')) % 4
+        new_rz = (self._shuffle_order.count('rz1') - self._shuffle_order.count('rz2')) % 4
+        self._shuffle_order = (['r'] * new_reverse +
+                               ['fx'] * new_fx +
+                               ['fy'] * new_fy +
+                               ['fz'] * new_fz +
+                               ['rx1'] * new_rx +
+                               ['ry1'] * new_ry +
+                               ['rz1'] * new_rz)
+        
 
     def set_grid(self, grid, update_score=True):
         """Set a new grid, used for preview purposes."""
@@ -243,7 +242,6 @@ class Connect3DGame(object):
     def play(self):
         if pygame:
             return
-        print self._player, self.num_players
         
         max_go = self.core._size_cubed - 1
         count_shuffle = 0
@@ -335,6 +333,25 @@ class DirectionCalculation(object):
         direction_group['Z'] = 'FB'
         direction_group[' '] = ' '
         
+        #Calculate the edge numbers for each direction
+        self.edges = {'U': list(c3d._range_md),
+                      'D': range(c3d._size_squared * (c3d.size - 1), c3d._size_squared * c3d.size),
+                      'R': [i * c3d.size + c3d.size - 1 for i in c3d._range_md],
+                      'L': [i * c3d.size for i in c3d._range_md],
+                      'F': [i * c3d._size_squared + c3d._size_squared + j - c3d.size
+                            for i in c3d._range_sm for j in c3d._range_sm],
+                      'B': [i * c3d._size_squared + j for i in c3d._range_sm for j in c3d._range_sm],
+                      ' ': []}
+                      
+        #Calculate the addition needed to move in each direction
+        self.move = {'U': -c3d._size_squared,
+                     'D': c3d._size_squared,
+                     'L': -1,
+                     'R': 1,
+                     'F': c3d.size,
+                     'B': -c3d.size,
+                     ' ': 0}
+        
         #Come up with all possible directions
         all_directions = set()
         for x in [' ', 'X']:
@@ -365,13 +382,14 @@ class DirectionCalculation(object):
             #Get a list of directions and calculate movement amount
             directions = [list(direction)]
             directions += [[j.replace(i, '') for i in directions[0] for j in direction_group.values() if i in j]]
-            direction_movement = sum(c3d.move[j] for j in directions[0])
+            direction_movement = sum(self.move[j] for j in directions[0])
                             
             #Build list of invalid directions
-            invalid_directions = [[c3d.edges[j] for j in directions[k]] for k in (0, 1)]
+            invalid_directions = [[self.edges[j] for j in directions[k]] for k in (0, 1)]
             invalid_directions = [join_list(j) for j in invalid_directions]
             
             self.reverse_directions.append((direction_movement, invalid_directions))
+        
         
             
             
@@ -395,16 +413,16 @@ class FlipGrid(object):
     
     def fx(self, data):
         """Flip on the X axis."""
-        return join_list(x[::-1] for x in split_list(data, self.c3d.size))
+        return join_list(x[::-1] for x in split_list(data, self.c3d.size)), 'fx'
         
     def fy(self, data):
         """Flip on the Y axis."""
         return join_list(join_list(split_list(x, self.c3d.size)[::-1]) 
-                                   for x in split_list(data, self.c3d._size_squared))
+                                   for x in split_list(data, self.c3d._size_squared)), 'fy'
         
     def fz(self, data):
         """Flip on the Z axis."""
-        return join_list(split_list(data, pow(self.c3d.size, 2))[::-1])
+        return join_list(split_list(data, pow(self.c3d.size, 2))[::-1]), 'fz'
     
     def rx(self, data, reverse=None):
         """Rotate on the X axis."""
@@ -416,12 +434,12 @@ class FlipGrid(object):
             return [data[start + i + j * self.c3d.size - k * self.c3d._size_squared] 
                     for i in self.c3d._range_sm_r 
                     for j in self.c3d._range_sm 
-                    for k in self.c3d._range_sm_r]
+                    for k in self.c3d._range_sm_r], 'rx1'
         else:
             return [data[start + i + j * self.c3d.size - k * self.c3d._size_squared] 
                     for i in self.c3d._range_sm 
                     for j in self.c3d._range_sm 
-                    for k in self.c3d._range_sm]
+                    for k in self.c3d._range_sm], 'rx2'
             
     def ry(self, data, reverse=None):
         """Rotate on the Y axis."""
@@ -433,13 +451,13 @@ class FlipGrid(object):
             return join_list(j[offset:offset + self.c3d.size] 
                              for offset in [(self.c3d.size - i - 1) * self.c3d.size 
                                             for i in self.c3d._range_sm]
-                             for j in split)
+                             for j in split), 'ry1'
         else:
             split = split[::-1]
             return join_list(j[offset:offset + self.c3d.size] 
                              for offset in [i * self.c3d.size 
                                             for i in self.c3d._range_sm] 
-                             for j in split)
+                             for j in split), 'ry2'
             
     def rz(self, data, reverse=None):
         """Rotate on the Z axis."""
@@ -451,16 +469,16 @@ class FlipGrid(object):
             return [x[j][i] 
                     for x in [split_list(x, self.c3d.size) 
                               for x in split] 
-                    for i in self.c3d._range_sm_r for j in self.c3d._range_sm]
+                    for i in self.c3d._range_sm_r for j in self.c3d._range_sm], 'rz1'
         else:
             return [x[j][i] 
                     for x in [split_list(x, self.c3d.size)[::-1] 
                               for x in split] 
-                    for i in self.c3d._range_sm for j in self.c3d._range_sm]
+                    for i in self.c3d._range_sm for j in self.c3d._range_sm], 'rz2'
     
     def reverse(self, data):
         """Reverse the grid."""
-        return data[::-1]
+        return data[::-1], 'r'
 
 c = Connect3DGame(3)
 c.play()
