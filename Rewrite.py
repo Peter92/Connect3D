@@ -3,6 +3,8 @@ from collections import defaultdict, Counter
 from operator import itemgetter
 import random
 import base64
+import zlib
+import cPickle
 try:
     import pygame
 except ImportError:
@@ -52,7 +54,6 @@ class Connect3D(object):
         self._range_sm_r = self._range_sm[::-1]
         self._range_md = range(self._size_squared)
         self._range_lg = range(self._size_cubed)
-        self._shuffle_order = []
         
         #Main parts
         self.grid = bytearray(0 for _ in self._range_lg)
@@ -61,9 +62,13 @@ class Connect3D(object):
         self.calculate_score()
 
     def __repr__(self):
-        output = (bytearray([self._player]) + bytearray([self.num_players]) + self.grid)
-        return "Connect3DGame.load('{}')".format(base64.b64encode(output))
+        output = base64.b64encode(zlib.compress('{}'.format(self.grid)))
+        return "Connect3D({}).load('{}')".format(self.size, output)
 
+    def load(self, data, update_score=True):
+        grid = bytearray(zlib.decompress(base64.b64decode(data)))
+        return self.set_grid(grid, update_score=update_score)
+        
     def __str__(self):
         """Print the current state of the grid."""
         grid_range = range(self.size)
@@ -106,6 +111,7 @@ class Connect3D(object):
         A level of 1 is mirror only.
         A level of 2 includes rotation.
         """
+        
         if level is None:
             level = self.shuffle_level
             
@@ -119,27 +125,9 @@ class Connect3D(object):
         shuffles = random.sample(range(max_shuffles), random.randint(0, max_shuffles - 1))
         shuffles.append(len(all_flips) - 1)
         
-        
         #Perform shuffle
         for i in shuffles:
             self.grid, operation = all_flips[i](self.grid)
-            self._shuffle_order.append(operation)
-        
-        #Clean shuffle order
-        new_reverse = self._shuffle_order.count('r') % 2
-        new_fx = self._shuffle_order.count('fx') % 2
-        new_fy = self._shuffle_order.count('fy') % 2
-        new_fz = self._shuffle_order.count('fz') % 2
-        new_rx = (self._shuffle_order.count('rx1') - self._shuffle_order.count('rx2')) % 4
-        new_ry = (self._shuffle_order.count('ry1') - self._shuffle_order.count('ry2')) % 4
-        new_rz = (self._shuffle_order.count('rz1') - self._shuffle_order.count('rz2')) % 4
-        self._shuffle_order = (['r'] * new_reverse +
-                               ['fx'] * new_fx +
-                               ['fy'] * new_fy +
-                               ['fz'] * new_fz +
-                               ['rx1'] * new_rx +
-                               ['ry1'] * new_ry +
-                               ['rz1'] * new_rz)
         
 
     def set_grid(self, grid, update_score=True):
@@ -169,21 +157,30 @@ class Connect3D(object):
         return self.score
 
 
-    def _point_score(self, id, player=None):
+    def _point_score(self, id, player=None, quick=False):
         """Find how many points are gained from a cell, and return the row hashes.
         
         Set an optional player value to force the first value to be that player.
         """
         
-        row_hashes = set()
         if player is None:
             player = self.grid[id]
-        if not player:
-            return row_hashes
         
+        if quick:
+            if not player:
+                return 0
+        else:
+            row_hashes = set()
+            if not player:
+                return row_hashes
+        
+        total = 0
+        calculations = 1
         for movement, invalid in self.directions.reverse_directions:
             count = 1
-            list_match = [id]
+                
+            if not quick:
+                list_match = [id]
             
             #Search both directions
             for i in (0, 1):
@@ -192,113 +189,75 @@ class Connect3D(object):
                     point += movement * (-1 if i else 1)
                     if self.grid[point] == player:
                         count += 1
-                        list_match.append(point)
+                        if not quick:
+                            list_match.append(point)
                     else:
                         break
+                    calculations += 1
+                calculations += 1
+            calculations += 1
                         
             #Add a point if enough matches
             if count == self.size:
-                row_hashes.add(hash(tuple(sorted(list_match))))
-                
-        return row_hashes
+                if quick:
+                    total += 1
+                else:
+                    row_hashes.add(hash(tuple(sorted(list_match))))
+        
+        if quick:
+            return total, calculations
+        else:
+            return row_hashes
         
 
 class Connect3DGame(object):
     DEFAULT_PLAYERS = 2
     DEFAULT_SHUFFLE_TURNS = 3
     
-    def __init__(self, num_players=None, shuffle_level=None, shuffle_turns=None, size=None):
-        self.num_players = self.DEFAULT_PLAYERS if num_players is None else max(1, num_players)
+    def __init__(self, shuffle_level=None, shuffle_turns=None, size=None):
         self.shuffle_turns = self.DEFAULT_SHUFFLE_TURNS if shuffle_turns is None else max(0, shuffle_turns)
         self.core = Connect3D(size=size, shuffle_level=shuffle_level)
         self.ai = ArtificialIntelligence(self)
-        self._range_players = [i + 1 for i in range(self.num_players)]
         self._ai_text = []
         
-        try:
-            self._player
-        except AttributeError:
-            self._player = random.randint(1, self.num_players)
-        
-    def next_player(self):
-        if self.num_players < 2:
-            return
-        self._player += 1
-        if self._player != self.num_players:
-            self._player %= self.num_players
+    def next_player(self, player, num_players):
+        player += 1
+        if player != num_players:
+            player %= num_players
+        return player
     
-    def previous_player(self):
-        if self.num_players < 2:
-            return
-        self._player -= 1
-        if self._player == 0:
-            self._player = self.num_players
+    def previous_player(self, player, num_players):
+        player -= 1
+        if player == 0:
+            player = num_players
+        return player
+    
+    def __repr__(self):
+        output = base64.b64encode(zlib.compress('{}'.format(self.core.grid)))
+        return "Connect3DGame.load('{}')".format(output)
         
     @classmethod
     def load(cls, data):
-        """Calculate the number of segments and split the data into the correct sections.
+        """Load a grid into the game."""
         
-        Parameters:
-            x (string): Data to split. 
-                Must be a base 64 encoded bytearray.
-                Acceptable inputs:
-                    bytearray(grid_data)
-                    bytearray(current_player + num_players + grid_data)
-        """
-        if not isinstance(data, (bytearray, str)):
-            raise ValueError("'{}' input must be a 'bytearray'".format(type(data).__name__))
-        if isinstance(data, str):
-            try:
-                data = bytearray(base64.b64decode(data))
-                if not data.strip():
-                    raise TypeError
-            except TypeError:
-                raise TypeError("input data is not correctly encoded")
+        grid = bytearray(zlib.decompress(base64.b64decode(data)))
+        cube_root = pow(len(grid), 1/3)
+        
+        #Weird bug that when nothing is added they are not equal
+        if round(cube_root) != round(cube_root, 4):
+            raise ValueError('incorrect input size')
             
-        cube_root = pow(len(data), 1/3)
-        
-        #Only the grid data is input
-        if cube_root == round(cube_root):
-            data_player = None
-            data_players = None
-            data_grid = data
-            data_range = bytearray(range(len(data)))
-        
-        #All the data is input
-        else:
-            data_player = data.pop(0)
-            data_players = data.pop(0)
-            cube_root = pow(len(data)/2, 1/3)
-            if cube_root != round(cube_root):
-                raise ValueError("invalid input length: '{}'".format(len(''.join(map(str, data))) + 2))
-                
-            data_length = int(pow(cube_root, 3))
-            data_grid = data[:data_length]
-            data_range = data[data_length + 1:data_length * 2]
-        
         #Create new class
-        new_instance = cls(size=int(cube_root), num_players=data_players)
-        if data_players is not None:
-            new_instance._player = data_players
-        new_instance.core.grid = data_grid
-        new_instance.core.range = data_range
+        new_instance = cls(size=int(round(cube_root)))
+        new_instance.core.set_grid(grid)
         return new_instance
     
-    def play(self, ai):
+    def play(self, players=(0, 3)):
         
-        #Validate AI input
-        if ai is not None:
-            try:
-                for k, v in ai.iteritems():
-                    try:
-                        self.ai.difficulty(v)
-                    except IndexError:
-                        raise IndexError('ai difficulty must be between 0-4')
-                    if k not in self._range_players:
-                        raise IndexError('ai must be set to a valid player')
-            except AttributeError:
-                raise ValueError('ai must be input as {player: level} format')
-                
+        num_players = len(players)
+        _range_players = [i + 1 for i in range(num_players)]
+        current_player = random.choice(_range_players)
+        
         if pygame:
             return
         
@@ -321,8 +280,8 @@ class Connect3DGame(object):
             points_left = True
             end_early = True
             if end_early:
-                potential_points = {j + 1: Connect3D(self.core.size).set_grid([j + 1 if not i else i for i in self.core.grid]).score for j in range(self.num_players)}
-                if any(self.core.score == potential_points[player + 1] for player in range(self.num_players)):
+                potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in _range_players}
+                if any(self.core.score == potential_points[player] for player in _range_players):
                     points_left = False
                     
             #Check if no spaces are left
@@ -343,11 +302,12 @@ class Connect3DGame(object):
                     return
             
             
-            print "Player {}'s turn".format(self._player)
-            if self._player in ai:
-                new_go = self.ai.calculate_move(self._player, ai[self._player])
-                self.core.grid[new_go] = self._player
-                self.next_player()
+            print "Player {}'s turn".format(current_player)
+            player_type = players[current_player - 1] - 1
+            
+            if player_type != -1:
+                new_go = self.ai.calculate_move(current_player, difficulty=player_type, _range=_range_players)
+                self.core.grid[new_go] = current_player
                 
             else:
                 #Get and validate input
@@ -361,8 +321,7 @@ class Connect3DGame(object):
                         print 'input must be an integer between 0 and {}'.format(max_go)
                         continue
                     if 0 <= new_go <= max_go and not self.core.grid[new_go]:
-                        self.core.grid[new_go] = self._player
-                        self.next_player()
+                        self.core.grid[new_go] = current_player
                         break
                     if new_go > max_go:
                         print 'input must be between 0 and {}'.format(max_go)
@@ -370,6 +329,8 @@ class Connect3DGame(object):
                         print 'input is taken'
                     else:
                         print 'unknown error with input'
+            
+            current_player = self.next_player(current_player, num_players)
             
             #Flip the grid
             count_shuffle += 1
@@ -553,13 +514,14 @@ class ArtificialIntelligence(object):
             player (int): Integer representation of the player, can be 0 or 1.
         """
         
+        self._temp_core.grid = grid
+        total, calculations = self._temp_core._point_score(cell_id, player, quick=True)
         try:
-            self.calculations += self.game.core._size_cubed
+            self.calculations += calculations
         except AttributeError:
             pass
             
-        self._temp_core.grid = grid
-        return len(self._temp_core._point_score(cell_id, player))
+        return total
         
         
     def points_bestcell(self, player):
@@ -574,7 +536,7 @@ class ArtificialIntelligence(object):
         
         return get_max_keys(max_points)
 
-    def points_immediateneighbour(self, grid=None, player=None):
+    def points_immediateneighbour(self, player_range, grid=None):
         """Find all places where anyone has n-1 points in a row, by substituting
         in a point for each player in every cell.
         
@@ -588,13 +550,13 @@ class ArtificialIntelligence(object):
         matches = defaultdict(list)
         for cell_id in self.game.core._range_lg:
             if not grid[cell_id]:
-                for player in self.game._range_players:
+                for player in player_range:
                     if self.check_cell(cell_id, grid, player):
                         matches[player].append(cell_id)
         
         return matches
     
-    def points_nearneighbour(self, extensive_look=True):
+    def points_nearneighbour(self, player_range, extensive_look=True):
         """Look two moves ahead to detect if someone could get a point.
         Uses the check_for_n_minus_one function from within a loop.
         
@@ -603,7 +565,7 @@ class ArtificialIntelligence(object):
         
         #Try initial check
         if not extensive_look:
-            match = self.points_immediateneighbour()
+            match = self.points_immediateneighbour(player_range=_range)
             if match:
                 return match, True
             
@@ -613,9 +575,9 @@ class ArtificialIntelligence(object):
         for i in self.game.core._range_lg:
             if not self.game.core.grid[i]:
                 old_value = grid[i]
-                for player in self.game._range_players:
+                for player in player_range:
                     grid[i] = player
-                    match = self.points_immediateneighbour(grid)
+                    match = self.points_immediateneighbour(player_range=player_range, grid=grid)
                     if match:
                         for k, v in match.iteritems():
                             matches[k] += v
@@ -628,7 +590,7 @@ class ArtificialIntelligence(object):
         return defaultdict(list), False
         
 
-    def calculate_move(self, player, difficulty=None):
+    def calculate_move(self, player, difficulty=None, _range=None):
         """Groups together the AI methods in order of importance.
         Will throw an error if grid_data is full, since the game should have ended by then anyway.
         
@@ -643,6 +605,8 @@ class ArtificialIntelligence(object):
             if the other player will get one too.
         """
         
+        if _range is None:
+            _range = (1, 2)
         
         chance_tactic, chance_ignore, chance_ignore_offset = self.difficulty(difficulty)
         
@@ -656,8 +620,7 @@ class ArtificialIntelligence(object):
         if total_moves >= (self.game.core.size - 2) * 2 or True:
             
             #Calculate move
-            move_points, is_near = self.points_nearneighbour()
-            print move_points
+            move_points, is_near = self.points_nearneighbour(player_range=_range)
             ai_text('Urgent: {}'.format(is_near))
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
@@ -713,7 +676,7 @@ class ArtificialIntelligence(object):
             
             #Set to random player
             else:
-                enemy = list(self.game._range_players)
+                enemy = list(_range)
                 del enemy[player - 1]
             
             #Set order
@@ -814,6 +777,11 @@ class ArtificialIntelligence(object):
                 (20, 25, 3),
                 (0, 0, 1)][level]
         
-        
-c = Connect3DGame(shuffle_level=False)
-c.play(ai={2:4})
+c = Connect3DGame(shuffle_level=2)
+c.core.grid[0] = 4
+c.core.grid[1] = 5
+c.core.grid[4] = 65
+#c.play(players=(0, 5))
+#print c.core
+print c.core.__repr__()
+print eval(c.__repr__())
