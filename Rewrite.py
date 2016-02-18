@@ -2,6 +2,11 @@ from __future__ import division
 from collections import defaultdict
 import random
 import base64
+try:
+    import pygame
+except ImportError:
+    pygame = None
+
 
 class Connect3D(object):
     """Class for holding the game information.
@@ -10,7 +15,7 @@ class Connect3D(object):
     DEFAULT_SIZE = 4
     DEFAULT_SHUFFLE_LEVEL = 1
     
-    def __init__(self, size=None, shuffle_level=DEFAULT_SHUFFLE_LEVEL):
+    def __init__(self, size=None, shuffle_level=None):
         
         self.size = self.DEFAULT_SIZE if size is None else max(1, size)
         self.shuffle_level = self.DEFAULT_SHUFFLE_LEVEL if shuffle_level is None else max(0, min(2, shuffle_level))
@@ -131,7 +136,7 @@ class Connect3D(object):
         for id in self._range_lg:
             self._point_score(id)
         
-        return self
+        return self.score
     
     def _point_score(self, id):
         player = self.grid[id]
@@ -165,10 +170,10 @@ class Connect3DGame(object):
     DEFAULT_PLAYERS = 2
     DEFAULT_SHUFFLE_TURNS = 3
     
-    def __init__(self, num_players=DEFAULT_PLAYERS, shuffle_turns=DEFAULT_SHUFFLE_TURNS, size=None):
+    def __init__(self, num_players=None, shuffle_level=None, shuffle_turns=None, size=None):
         self.num_players = self.DEFAULT_PLAYERS if num_players is None else max(1, num_players)
         self.shuffle_turns = self.DEFAULT_SHUFFLE_TURNS if shuffle_turns is None else max(0, shuffle_turns)
-        self.core = Connect3D(size)
+        self.core = Connect3D(size=size, shuffle_level=shuffle_level)
         
         try:
             self._player
@@ -177,11 +182,13 @@ class Connect3DGame(object):
         
     def next_player(self):
         self._player += 1
-        self._player %= self.players
+        if self._player != self.num_players:
+            self._player %= self.num_players
     
     def previous_player(self):
         self._player -= 1
-        self._player %= self.players
+        if self._player == 0:
+            self._player = self.num_players
         
     @classmethod
     def load(cls, data):
@@ -232,6 +239,80 @@ class Connect3DGame(object):
         new_instance.core.grid = data_grid
         new_instance.core.range = data_range
         return new_instance
+    
+    def play(self):
+        if pygame:
+            return
+        print self._player, self.num_players
+        
+        max_go = self.core._size_cubed - 1
+        count_shuffle = 0
+        flipped = False
+        while True:
+            
+            print self.core
+            print 'Scores: {}'.format(dict(self.core.calculate_score()))
+            if flipped:
+                flipped = False
+                print "Grid was flipped!"
+            
+            #Check if any points are left to gain
+            points_left = True
+            end_early = True
+            if end_early:
+                potential_points = {j + 1: Connect3D(self.core.size).set_grid([j + 1 if not i else i for i in self.core.grid]).score for j in range(self.num_players)}
+                if any(self.core.score == potential_points[player + 1] for player in range(self.num_players)):
+                    points_left = False
+                    
+            #Check if no spaces are left
+            if 0 not in self.core.grid or not points_left:
+                print 'Someone won!'
+                '''
+                winning_player = self._get_winning_player()
+                if len(winning_player) == 1:
+                    print 'Player {} won!'.format(winning_player[0])
+                else:
+                    print 'The game was a draw!'
+                    '''
+                    
+                #Ask to play again and check if answer is a variant of 'yes' or 'ok'
+                print 'Play again?'
+                play_again = raw_input().lower()
+                if any(i in play_again for i in ('y', 'k')):
+                    self.core = Connect3D(size=self.core.size, shuffle_level=self.core.shuffle_level)
+                    return self.play()
+                else:
+                    return
+            
+            
+            print "Player {}'s turn".format(self._player)
+            #Get and validate input
+            while True:
+                new_go = raw_input()
+                if not len(new_go):
+                    return
+                try:
+                    new_go = int(new_go)
+                except ValueError:
+                    print 'input must be an integer between 0 and {}'.format(max_go)
+                    continue
+                if 0 <= new_go <= max_go and not self.core.grid[new_go]:
+                    self.core.grid[new_go] = self._player
+                    self.next_player()
+                    break
+                if new_go > max_go:
+                    print 'input must be between 0 and {}'.format(max_go)
+                elif self.core.grid[new_go]:
+                    print 'input is taken'
+                else:
+                    print 'unknown error with input'
+            
+            count_shuffle += 1
+            if count_shuffle >= self.shuffle_turns:
+                count_shuffle = 0
+                self.core.shuffle()
+                flipped = True
+             
         
 class DirectionCalculation(object):
     """Calculate which directions are possible to move in, based on the 6 directions.
@@ -381,16 +462,5 @@ class FlipGrid(object):
         """Reverse the grid."""
         return data[::-1]
 
-g = [0 for i in range(27)]
-g[0] = 3
-g[1] = 3
-g[2] = 3
-g[3] = 1
-g[5] = 1
-g[4] = 1
-g[6] = 1
-c = Connect3DGame.load(bytearray(range(27)))
-d = Connect3D(3).set_grid(g)
-c.core.shuffle()
-print d
-print d.score
+c = Connect3DGame(3)
+c.play()
