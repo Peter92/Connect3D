@@ -7,9 +7,9 @@ import base64
 import zlib
 import math
 import cPickle
+import time
 try:
     import pygame
-    from FrameLimit import GameTime, GameTimeLoop
 except ImportError:
     pygame = None
     
@@ -21,10 +21,97 @@ BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
+RED = (255, 0, 0)
+PURPLE = (255, 120, 235)
+ORANGE = (255, 170, 0)
+
 SELECTION = {'Default': [WHITE, LIGHTGREY],
              'Hover': [None, BLACK],
              'Waiting': [None, BLACK],
              'Selected': [GREEN, None]}
+             
+             
+class GameTime(object):
+    def __init__(self, desired_fps=120, desired_ticks=60):
+        self.start_time = time.time()
+        self.desired_fps = desired_fps
+        self.desired_ticks = desired_ticks
+        
+        self.ticks = 0
+        
+        self.framerate_counter = 1
+        self.framerate_time = 0
+        
+    def calculate_ticks(self, current_time):
+        """Ensure the correct number of ticks have passed since the 
+        start of the game.
+        This doesn't use the inbuilt pygame ticks.
+        """
+        time_elapsed = current_time - self.start_time
+        
+        total_ticks_needed = int(time_elapsed * self.desired_ticks)
+        
+        ticks_this_frame = total_ticks_needed - self.ticks
+        self.ticks += ticks_this_frame
+        
+        return ticks_this_frame
+    
+    def calculate_fps(self, current_time, update_time=0.1):
+        """Calculate the FPS from actual time, not ticks.
+        
+        It will return a number every update_time seconds, and will
+        return None any other time.
+        """
+        frame_time = current_time - self.framerate_time
+        
+        if frame_time < update_time:
+            self.framerate_counter += 1
+            
+        else:
+            self.framerate_time = current_time
+            fps = self.framerate_counter / frame_time
+            self.framerate_counter = 1
+            return int(fps)
+        
+    def limit_fps(self, alternate_fps=None):
+        
+        wanted_fps = alternate_fps or self.desired_fps
+        if wanted_fps:
+            pygame.time.Clock().tick(wanted_fps)
+
+            
+class GameTimeLoop(object):
+    """This gets called every loop but uses GameTime."""
+    
+    def __init__(self, GTObject):
+    
+        self.GTObject = GTObject
+        GTObject.loop_start = time.time()
+        
+        #Run the code once so the result can be called multiple times
+        self.ticks = GTObject.calculate_ticks(GTObject.loop_start)
+        self.total_ticks = GTObject.ticks
+        self.fps = GTObject.calculate_fps(GTObject.loop_start)
+        
+        self._temp_fps = None
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        self.GTObject.limit_fps(self._temp_fps)
+        self._temp_fps = None
+        
+    def set_fps(self, fps):
+        self.GTObject.desired_fps = fps
+    
+    def temp_fps(self, fps):
+        self._temp_fps = fps
+    
+    def update_ticks(self, ticks):
+        self.GTObject.start_time = time.time()
+        self.GTObject.desired_ticks = ticks
+        self.ticks = 0  
              
              
 class ThreadHelper(Thread):
@@ -257,6 +344,7 @@ class Connect3DGame(object):
         self._ai_text = []
         self._ai_move = None
         self._ai_state = None
+        self._ai_running = False
         
     def next_player(self, player, num_players):
         player += 1
@@ -290,13 +378,27 @@ class Connect3DGame(object):
         new_instance.core.set_grid(grid)
         return new_instance
     
-    def play(self, players=(0, 3)):
+    def check_game_end(self, _range_players, end_early=True):
+    
+            #Check if any points are left to gain
+            points_left = True
+            if end_early:
+                potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in _range_players}
+                if any(self.core.score == potential_points[player] for player in _range_players):
+                    points_left = False
+                    
+            #Check if no spaces are left
+            if 0 not in self.core.grid or not points_left:
+                return get_max_keys(self.core.score)
+                
+    
+    def play(self, players=(0, 3), basic=False):
         
         num_players = len(players)
         _range_players = [i + 1 for i in range(num_players)]
         current_player = random.choice(_range_players)
         
-        if pygame:
+        if pygame and not basic:
             return GameCore(self).play(players=players)
         
         max_go = self.core._size_cubed - 1
@@ -314,6 +416,7 @@ class Connect3DGame(object):
                 print self._ai_text
             self._ai_text = []
             
+            '''
             #Check if any points are left to gain
             points_left = True
             end_early = True
@@ -336,6 +439,22 @@ class Connect3DGame(object):
                 if any(i in play_again for i in ('y', 'k')):
                     self.core = Connect3D(size=self.core.size, shuffle_level=self.core.shuffle_level)
                     return self.play()
+                else:
+                    return
+                    '''
+            winning_player = self.check_game_end(_range_players)
+            if winning_player is not None:
+                if len(winning_player) == 1:
+                    print 'Player {} won!'.format(winning_player[0])
+                else:
+                    print 'The game was a draw!'
+                    
+                #Ask to play again and check if answer is a variant of 'yes' or 'ok'
+                print 'Play again?'
+                play_again = raw_input().lower()
+                if any(i in play_again for i in ('y', 'k')):
+                    self.core = Connect3D(size=self.core.size, shuffle_level=self.core.shuffle_level)
+                    return self.play(players=players, basic=basic)
                 else:
                     return
             
@@ -642,6 +761,7 @@ class ArtificialIntelligence(object):
             first, and by setting to 1, it'll always try score points regardless of 
             if the other player will get one too.
         """
+        self.game._ai_running = True
         
         if _range is None:
             _range = (1, 2)
@@ -650,12 +770,15 @@ class ArtificialIntelligence(object):
         
         total_moves = len([i for i in self.game.core.grid if i])
         self.calculations = 0
-        self.game._ai_text = []
         ai_text = self.game._ai_text.append
-        state = None
         next_moves = []
         
-        if total_moves >= (self.game.core.size - 2) * 2 or True:
+        self.game._ai_text = []
+        self.game._ai_state = None
+        self.game._ai_move = None
+        
+        #Skip the first few moves since they need the most calculations
+        if total_moves >= (self.game.core.size - 2) * len(_range):
             
             #Calculate move
             move_points, is_near = self.points_nearneighbour(player_range=_range)
@@ -732,52 +855,51 @@ class ArtificialIntelligence(object):
                 for i in (1, 0):
                     if order_player[i] in max_points:
                         next_moves = max_points[order_player[i]][0]
-                        state = 'Forward thinking ({})'.format(order_text[i])
+                        self.game._ai_state = 'Forward thinking ({})'.format(order_text[i])
             
             #Make a move based on the current points in the grid
             if move_points and chance_notice_basic and (not next_moves or is_near):
                 for i in (1, 0):
                     if move_points[order_player[i]]:
                         next_moves = move_points[order_player[i]]
-                        state = order_text[i]
+                        self.game._ai_state = order_text[i]
                     
             #Make a random move determined by number of possible points that can be gained
-            elif not state:
+            elif not self.game._ai_state:
                 if not chance_notice_basic:
                     ai_text("AI didn't notice something.")
-                state = False
+                self.game._ai_state = False
             
             #Make a semi random placement
-            if not state:
+            if not self.game._ai_state:
                 if not chance_ignore and random.uniform(0, 100) > chance_ignore:
                     next_moves = self.points_bestcell(player)
-                    state = 'Predictive placement'
+                    self.game._ai_state = 'Predictive placement'
                 else:
-                    state = 'Random placement'
+                    self.game._ai_state = 'Random placement'
             
-        if state is None:
-            state = 'Starting'
+        if self.game._ai_state is None:
+            self.game._ai_state = 'Starting'
             
         #Make a totally random move
         if not next_moves:
             next_moves = [i for i in self.game.core._range_lg if not self.game.core.grid[i]]
-            if state is None:
-                state = 'Struggling'
+            if self.game._ai_state is None:
+                self.game._ai_state = 'Struggling'
                 
-        ai_text('AI Objective: {}.'.format(state))
+        ai_text('AI Objective: {}.'.format(self.game._ai_state))
         n = random.choice(next_moves)
         
         ai_text('Potential Moves: {}'.format(next_moves))
         
-        next_move = random.choice(next_moves)
+        self.game._ai_move = random.choice(next_moves)
         
-        ai_text('Chosen Move: {}'.format(next_move))
+        ai_text('Chosen Move: {}'.format(self.game._ai_move))
         ai_text('Calculations: {}'.format(self.calculations + 1))
         
         #print state, self.game._ai_text
-        self.game._ai_state = state
-        self.game._ai_move = next_move
-        return next_move
+        self.game._ai_running = False
+        return self.game._ai_move
         
 
     def difficulty(self, level=None):
@@ -904,23 +1026,23 @@ class DrawData(object):
         else:
             return None
             
-            
 
 class GameCore(object):
 
     FPS_IDLE = 15
     FPS_MAIN = 30
     FPS_SMOOTH = 120
+    WAIT = 60
     
     def __init__(self, C3DGame):
-        self.C3DGame = C3DGame
+        self.game = C3DGame
         self.WIDTH = 640
         self.HEIGHT = 960
         self.FPS = self.FPS_IDLE
         self.TICKS = 120
         
-        
-        self.player_colours = [GREEN, LIGHTBLUE]
+        self.player_colours = [GREEN, LIGHTBLUE, YELLOW, RED, PURPLE, ORANGE]
+        random.shuffle(self.player_colours)
     
     def resize_screen(self):
         """Recalculate anything to do with a new width and height."""
@@ -937,8 +1059,8 @@ class GameCore(object):
         freeze_edit = False
         while True:
             edited = False
-            self.draw = DrawData(self.C3DGame.core, length, angle, padding, offset)
-            height = self.draw.chunk_height * self.C3DGame.core.size
+            self.draw = DrawData(self.game.core, length, angle, padding, offset)
+            height = self.draw.chunk_height * self.game.core.size
             width = self.draw.size_x * 2
             
             too_small = height < self.HEIGHT * 0.85, 
@@ -976,17 +1098,34 @@ class GameCore(object):
 
     def end(self):
         """Handle ending the game from anywhere."""
-        pygame.quit()
-        return
+        self.state = None
     
     def set_grid_blocks(self):
     
         #Create surface
         self.screen_blocks = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         
-        core = self.C3DGame.core
+        hover = self.temp_data['Hover']
+        pending = self.temp_data['PendingMove']
+        early = self.temp_data['EarlyClick']
+        
+        extra = [hover, pending, early]
+        try:
+            extra[0] = extra[0][0]
+        except TypeError:
+            pass
+        try:
+            extra[1] = extra[1][0]
+        except TypeError:
+            pass
+        try:
+            extra[2] = extra[2][0]
+        except TypeError:
+            pass
+        
+        core = self.game.core
         for i in core._range_lg:
-            if core.grid[i] or i == self.temp_data['Hover']:
+            if core.grid[i] or i in extra:
                 chunk = i // core._size_squared
                 base_coordinate = self.draw.relative_coordinates[i % core._size_squared]
                 coordinate = (base_coordinate[0] + self.draw.offset[0], 
@@ -1003,27 +1142,31 @@ class GameCore(object):
                           
                 #Player has mouse over square
                 block_colour = None
+                
                 if not core.grid[i]:
-                    #self.temp_data['Hover']
-                    block_colour = mix_colour(WHITE, WHITE, self.player_colours[self._player - 1])
+                    
+                    #Hovering over block
+                    if i == extra[0]:
+                        block_colour = mix_colour(WHITE, WHITE, self.player_colours[hover[1] - 1])
+                        
+                    if i == extra[1]:
+                        player_colour = self.player_colours[self._player - 1]
+                        
+                        #Holding down over block
+                        if pending[2]:
+                            block_colour = mix_colour(BLACK, GREY, WHITE, WHITE, player_colour, player_colour, player_colour, player_colour)
+                        
+                        #Holding down but moved away
+                        else:
+                            block_colour = mix_colour(WHITE, WHITE, player_colour)
+                    
+                    #Hovering over block between turns
+                    if i == extra[2]:
+                        block_colour = mix_colour(WHITE, WHITE, self.player_colours[early[1] - 1])
                 
                 #Square is taken by a player
                 else:
-                    player = core.grid[i]
-                    
-                    #Square is being moved into
-                    mix = False
-                    '''
-                    if isinstance(j, int) and j > 1:
-                        j = 9 - j
-                        moving_block = square
-                        mix = True
-                        '''
-                    
-                    block_colour = self.player_colours[player - 1]
-                    
-                    if mix:
-                        block_colour = mix_colour(block_colour, GREY)
+                    block_colour = self.player_colours[core.grid[i] - 1]
                 
                 if block_colour is not None:
                     pygame.draw.polygon(self.screen_blocks,
@@ -1045,11 +1188,11 @@ class GameCore(object):
         """Runs the AI in a thread.
         Until _ai_move or _ai_state is not None, it is not completed.
         """
-        self.C3DGame._ai_move = self.C3DGame._ai_state = None
+        self.game._ai_move = self.game._ai_state = None
         if run:
-            ThreadHelper(self.C3DGame.ai.calculate_move, 
+            ThreadHelper(self.game.ai.calculate_move, 
                          self._player, 
-                         difficulty=self._player_type[self._player - 1], 
+                         difficulty=self._player_types[self._player - 1], 
                          _range=self._range_players).start()
 
             
@@ -1057,13 +1200,15 @@ class GameCore(object):
     
         #Initialise screen
         pygame.init()
-        self.temp_data = {'Hover': None}
+        self.temp_data = {'Hover': None,
+                          'PendingMove': None,
+                          'EarlyClick': None}
         
-        num_players = len(players)
-        self._range_players = [i + 1 for i in range(num_players)]
+        self._player_count = len(players)
+        self._range_players = [i + 1 for i in range(self._player_count)]
         self._player = random.choice(self._range_players)
-        self._player_type = [i - 1 for i in players]
-        #self.C3DGame.next_player(self._player, num_players)
+        self._player_types = [i - 1 for i in players]
+        #self.game.next_player(self._player, num_players)
         
         self.resize_screen()
         self.state = 'Main'
@@ -1081,31 +1226,42 @@ class GameCore(object):
                                    'Events': pygame.event.get(),
                                    'Keys': pygame.key.get_pressed(),
                                    'MousePos': pygame.mouse.get_pos(),
-                                   'MouseClick': pygame.mouse.get_pressed(),
-                                   'MouseUse': False}
+                                   'MouseClick': list(pygame.mouse.get_pressed()),
+                                   'MouseUse': any(pygame.mouse.get_pressed())}
                 if self.frame_data['Keys'][pygame.K_ESCAPE]:
                     return self.end()
                     
                 #Handle quitting and resizing window
+                if self.state is None:
+                    pygame.quit()
+                    return
                 for event in self.frame_data['Events']:
                     if event.type == pygame.QUIT:
-                        return self.end()
+                        self.state = None
                         
                     elif event.type == pygame.VIDEORESIZE:
                         self.WIDTH, self.HEIGHT = event.dict['size']
                         self.resize_screen()
                         self.frame_data['Redraw'] = True
                         
-                    if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEMOTION):
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button <= 3:
+                        self.frame_data['MouseUse'] = True
+                        self.frame_data['MouseClick'][event.button - 1] = 1
+                    
+                    if event.type == pygame.MOUSEMOTION:
                         self.frame_data['MouseUse'] = True
                     
                 #---MAIN LOOP START---#
                 
                 
-                self.game_main(game_time)
-                if self.C3DGame._ai_move is not None:
-                    print self.C3DGame._ai_move, self.C3DGame._ai_state
+                if self.state == 'Main':
+                    self.game_main(game_time)
+                
+                '''
+                if self.game._ai_move is not None:
+                    print self.game._ai_move, self.game._ai_state
                     self.run_ai(run=False)
+                    '''
                 
                 #---MAIN LOOP END---#
                 if game_time.fps:
@@ -1114,35 +1270,131 @@ class GameCore(object):
 
     def game_main(self, game_time):
         
+        #End of game
+        winning_player = self.game.check_game_end(self._range_players)
+        if winning_player is not None and False:
+            if len(winning_player) == 1:
+                print 'Player {} won!'.format(winning_player[0])
+            else:
+                print 'The game was a draw!'
+            self.end()
+            return
+        
+        player_type = self._player_types[self._player - 1]
+        
+        
+        #Moved mouse
+        mouse_block_id = None
         if self.frame_data['MouseUse']:
+            
             game_time.temp_fps(self.FPS_MAIN)
             mouse_block_id = self.draw.game_to_block_index(*self.frame_data['MousePos'])
-            if mouse_block_id is not None:
-                #mouse_block_taken = bool(self.C3DGame.core.grid[mouse_block_id])
-                self.temp_data['Hover'] = mouse_block_id
+            pending = self.temp_data['PendingMove']
+            
+            #Enemy has finished their go, gets rid of the 'frozen game' effect
+            if pending is not None and pending[3]:
+                next_player = self.game.next_player(self._player, self._player_count)
+                
+                #Re-activate hover if next player is human
+                if self._player_types[next_player - 1] < 0:
+                    self.temp_data['Hover'] = [mouse_block_id, next_player]
+                    #if self.frame_data['MouseClick'][0]:
+                    #    self.temp_data['EarlyClick'] = self.temp_data['Hover']
+                    
+                else:
+                    self.temp_data['Hover'] = None
+            
+            #Players go
+            elif player_type < 0:
+                if pending is None:
+                    self.temp_data['Hover'] = [mouse_block_id, self._player]
+                else:
+                    self.temp_data['Hover'] = None
+                    
             else:
                 self.temp_data['Hover'] = None
+                
+                
             self.set_grid_blocks()
             self.frame_data['Redraw'] = True
-            
-            
-                
-        '''                       
-            #Update mouse information
-            if game_flags['mouse_used'] or game_flags['recalculate']:
-            
-                self._set_fps(self.FPS_MAIN)
+        
+        #Move not yet made
+        if self.temp_data['PendingMove'] is None or not self.temp_data['PendingMove'][3]:
+        
+            #Human player
+            if player_type < 0:
                     
-                mouse_data = pygame.mouse.get_pos()
-                x, y = self.to_pygame(*mouse_data)
-                block_data['id'] = self.draw_data.game_to_block_index(x, y)
-                block_data['taken'] = True
-                if block_data['id'] is not None and ai_turn is None:
-                    block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
+                #Mouse button clicked
+                if self.frame_data['MouseClick'][0]:
+                    
+                    #Player has just clicked
+                    if self.temp_data['PendingMove'] is None:
+                        if mouse_block_id is not None and not self.game.core.grid[mouse_block_id]:
+                            self.temp_data['PendingMove'] = [mouse_block_id, game_time.total_ticks + self.WAIT, True, False]
+                    
+                    #Player is holding click over the block
+                    elif mouse_block_id == self.temp_data['PendingMove'][0]:
+                        self.temp_data['PendingMove'][2] = True
+                    
+                    #Player is holding click and has moved mouse away
+                    elif mouse_block_id != self.temp_data['PendingMove'][0]:
+                        self.temp_data['PendingMove'][2] = False
+                
+                
+                #Mouse button released
+                elif self.temp_data['PendingMove'] is not None and not self.temp_data['PendingMove'][3]:
+                    
+                    #If mouse was kept on
+                    if self.temp_data['PendingMove'][2]:
+                        self.temp_data['PendingMove'][3] = True
+                    
+                    #If mouse was dragged off
+                    else:
+                        self.temp_data['PendingMove'] = None
+                
+                
+                self.set_grid_blocks()
+                self.frame_data['Redraw'] = True
             
-                                 '''
-                                 
-                                 
+            #Computer player
+            elif self.game._ai_running is False:
+            
+                #Start move
+                if self.game._ai_move is None:
+                    self.run_ai()
+                
+                #Move calculated
+                else:
+                    self.temp_data['PendingMove'] = (self.game._ai_move, game_time.total_ticks + self.WAIT, True, True)
+                    self.run_ai(run=False)
+                    
+                    self.set_grid_blocks()
+                    self.frame_data['Redraw'] = True
+        
+        #Commit the move
+        else:
+            
+            #Moved cancelled
+            if self.frame_data['MouseClick'][2] and player_type < 0:
+                self.temp_data['PendingMove'] = None
+                
+            else:
+                block_id, wait_until, hovering, accept = self.temp_data['PendingMove']
+                
+                #Cancelled move
+                if not accept and not hovering and not self.frame_data['MouseClick'][0]:
+                    self.temp_data['PendingMove'] = block_id = wait_until = None
+                    
+                if block_id is not None and accept and game_time.total_ticks > wait_until:
+                    self.temp_data['PendingMove'] = None
+                    self.game.core.grid[block_id] = self._player
+                    self._player = self.game.next_player(self._player, self._player_count)
+                    
+                    self.set_grid_blocks()
+                    self.frame_data['Redraw'] = True
+                    self.game.core.calculate_score()
+        
+            
         if self.frame_data['Redraw']:
             self.screen.fill((255, 255, 255))
             
@@ -1152,8 +1404,9 @@ class GameCore(object):
             self.screen.blit(self.screen_blocks, grid_location)
             self.screen.blit(self.screen_grid, grid_location)
             pygame.display.flip()
-                    
+
+
 c = Connect3DGame.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
-print c.core
-c.play()
+#print c.core
+c.play((0,0))
 #GameCore(c).play()
