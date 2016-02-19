@@ -842,14 +842,14 @@ class DrawData(object):
 
         #Absolute coordinates for pygame
         chunk_coordinates = [(self.offset[0], self.offset[1] - i * self.chunk_height) for i in self.core._range_sm]
-
+        
         self.line_coordinates = [((self.offset[0] + self.size_x, self.offset[1] + self.centre - self.size_y),
                                   (self.offset[0] + self.size_x, self.offset[1] + self.size_y - self.centre)),
                                  ((self.offset[0] - self.size_x, self.offset[1] + self.centre - self.size_y),
                                   (self.offset[0] - self.size_x, self.offset[1] + self.size_y - self.centre)),
-                                 ((self.offset[0], self.offset[1] + self.centre - self.size_y * 2),
-                                  (self.offset[0], self.offset[1] - self.centre))]
-
+                                 ((self.offset[0], self.offset[1] + self.size_y * 2 - self.centre),
+                                  (self.offset[0], self.offset[1] + self.centre))]
+        
         for i in self.core._range_sm:
 
             chunk_height = -i * self.chunk_height
@@ -894,10 +894,13 @@ class GameCore(object):
         self.C3DGame = C3DGame
         self.WIDTH = 640
         self.HEIGHT = 960
-        self.FPS = 30
+        self.FPS = None
         self.TICKS = 120
+        
+        self.player_colours = [GREEN, LIGHTBLUE]
     
     def resize_screen(self):
+        """Recalculate anything to do with a new width and height."""
         self.mid_point = [self.WIDTH / 2, self.HEIGHT / 2]
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.RESIZABLE)
         
@@ -907,16 +910,16 @@ class GameCore(object):
         padding = 2
         angle_limits = (26, 35)
         
+        offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT / 40)
         freeze_edit = False
         while True:
             edited = False
-            self.draw = DrawData(self.C3DGame.core, length, angle, padding, self.mid_point)
+            self.draw = DrawData(self.C3DGame.core, length, angle, padding, offset)
             height = self.draw.chunk_height * self.C3DGame.core.size
             width = self.draw.size_x * 2
             
-            
             too_small = height < self.HEIGHT * 0.85, 
-            too_tall = height > self.HEIGHT * 0.85
+            too_tall = height > self.HEIGHT * 0.9
             too_thin = width < self.WIDTH * 0.85
             too_wide = width > self.WIDTH * 0.9
             
@@ -945,85 +948,77 @@ class GameCore(object):
                 break
                 
                 
-        self.set_grid()
+        self.set_grid_overlay()
+        self.set_grid_blocks()
 
     def end(self):
+        """Handle ending the game from anywhere."""
         pygame.quit()
         return
     
-    def set_grid(self):
-        core = self.C3DGame.core
-        
-        height = self.draw.chunk_height * core.size
-        width = self.draw.size_y * 4
-        
-        self.screen_grid = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
-        self.screen_grid = self.screen_grid.convert_alpha()
-        #self.screen_grid.fill((255, 255, 255))
+    def set_grid_blocks(self):
     
+        #Create surface
+        self.screen_blocks = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        
+        core = self.C3DGame.core
         for i in core._range_lg:
-            if not core.grid[i]:
-            
-                chunk = i / core._size_squared
+            if core.grid[i]:
+                chunk = i // core._size_squared
+                base_coordinate = self.draw.relative_coordinates[i % core._size_squared]
+                coordinate = (base_coordinate[0] + self.draw.offset[0], 
+                    self.draw.offset[1] + chunk * self.draw.chunk_height + self.draw.size_y_sm * 2 - base_coordinate[1])
                 
+                square = [coordinate,
+                          (coordinate[0] + self.draw.size_x_sm,
+                           coordinate[1] - self.draw.size_y_sm),
+                          (coordinate[0],
+                           coordinate[1] - self.draw.size_y_sm * 2),
+                          (coordinate[0] - self.draw.size_x_sm,
+                           coordinate[1] - self.draw.size_y_sm),
+                          coordinate]
+                          
+                #Player has mouse over square
+                block_colour = None
+                if not core.grid[i] and False:
                 
+                    if game_data['players'][self.player] is False:
+                        block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
+                
+                #Square is taken by a player
+                else:
+                    player = core.grid[i]
+                    
+                    #Square is being moved into
+                    mix = False
+                    '''
+                    if isinstance(j, int) and j > 1:
+                        j = 9 - j
+                        moving_block = square
+                        mix = True
+                        '''
+                    
+                    block_colour = self.player_colours[player - 1]
+                    
+                    if mix:
+                        block_colour = mix_colour(block_colour, GREY)
+                
+                if block_colour is not None:
+                    pygame.draw.polygon(self.screen_blocks,
+                                        block_colour, square, 0)
+                                        
+                                        
+    def set_grid_overlay(self):
+        """Draws the grid outline to a surface."""
+        
+        #Create transparent surface
+        self.screen_grid = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+              
         #Draw grid
         for line in self.draw.line_coordinates:
             pygame.draw.aaline(self.screen_grid,
-                               BLACK,
-                               line[0],
-                               line[1],
-                               1)
-        '''
-            #Draw coloured squares
-            for i in self.C3DObject.range_data:
-                if self.C3DObject.grid_data[i] != '' or i == game_flags['hover']:
-                
-                    chunk = i / self.C3DObject.segments_squared
-                    coordinate = list(self.draw_data.relative_coordinates[i % self.C3DObject.segments_squared])
-                    coordinate[0] += self.draw_data.offset[0]
-                    coordinate[1] += self.draw_data.offset[1] - chunk * self.draw_data.chunk_height
-                    
-                    square = [coordinate,
-                              (coordinate[0] + self.draw_data.size_x_sm,
-                               coordinate[1] - self.draw_data.size_y_sm),
-                              (coordinate[0],
-                               coordinate[1] - self.draw_data.size_y_sm * 2),
-                              (coordinate[0] - self.draw_data.size_x_sm,
-                               coordinate[1] - self.draw_data.size_y_sm),
-                              coordinate]
-                  
-                    #Player has mouse over square
-                    block_colour = None
-                    if self.C3DObject.grid_data[i] == '':
-                    
-                        if game_data['players'][self.player] is False:
-                            block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
-                    
-                    #Square is taken by a player
-                    else:
-                        j = self.C3DObject.grid_data[i]
-                        
-                        #Square is being moved into, mix with red and white
-                        mix = False
-                        if isinstance(j, int) and j > 1:
-                            j = 9 - j
-                            moving_block = square
-                            mix = True
-                        
-                        block_colour = self.player_colours[j]
-                        
-                        if mix:
-                            block_colour = mix_colour(block_colour, GREY)
-                    
-                    if block_colour is not None:
-                        pygame.draw.polygon(self.screen,
-                                            block_colour,
-                                            [self.to_canvas(*corner)
-                                             for corner in square],
-                                            0)
-                
-                                   '''
+                               BLACK, line[0], line[1], 1)
+        
     
     def play(self):
     
@@ -1032,15 +1027,7 @@ class GameCore(object):
         self.resize_screen()
         self.state = 'Main'
         
-        self.set_grid()
-        '''
-        self.draw_data = GridDrawData(self.length,
-                                 self.C3DObject.segments,
-                                 self.angle,
-                                 padding=self.angle / self.C3DObject.segments,
-                                 offset=offset)
-                                 
-                                 
+        '''                       
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
             
@@ -1080,19 +1067,25 @@ class GameCore(object):
                 #---MAIN LOOP START---#
                 
                 
+                self.game_main()
                 
                 
                 #---MAIN LOOP END---#
                 if game_time.fps:
                     pygame.display.set_caption('{}'.format(game_time.fps))
                     
-                if self.frame_data['Redraw']:
-                    self.screen.fill((255, 255, 255))
-                    
-                    grid_dimensions = self.screen_grid.get_size()
-                    grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_dimensions)]
-                    
-                    self.screen.blit(self.screen_grid, grid_location)
-                    pygame.display.flip()
 
-GameCore(Connect3DGame()).play()
+    def game_main(self):
+        if self.frame_data['Redraw']:
+            self.screen.fill((255, 255, 255))
+            
+            grid_dimensions = self.screen_grid.get_size()
+            grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_dimensions)]
+            
+            self.screen.blit(self.screen_blocks, grid_location)
+            self.screen.blit(self.screen_grid, grid_location)
+            pygame.display.flip()
+                    
+c = Connect3DGame.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
+print c.core
+GameCore(c).play()
