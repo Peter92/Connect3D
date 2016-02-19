@@ -1,6 +1,7 @@
 from __future__ import division
 from collections import defaultdict, Counter
 from operator import itemgetter
+from threading import Thread
 import random
 import base64
 import zlib
@@ -25,12 +26,25 @@ SELECTION = {'Default': [WHITE, LIGHTGREY],
              'Waiting': [None, BLACK],
              'Selected': [GREEN, None]}
              
+             
+class ThreadHelper(Thread):
+    def __init__(self, function, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+        Thread.__init__(self)
+        self.function = function
+
+    def run(self):
+        self.function(*self.args, **self.kwargs)
+        
+        
 def mix_colour(*args):
     mixed_colour = [0, 0, 0]
     num_colours = len(args)
     for colour in range(3):
         mixed_colour[colour] = sum(i[colour] for i in args) / num_colours
     return mixed_colour
+    
     
 def get_max_keys(x):
     """Return a list of every key containing the max value.
@@ -241,6 +255,8 @@ class Connect3DGame(object):
         self.core = Connect3D(size=size, shuffle_level=shuffle_level)
         self.ai = ArtificialIntelligence(self)
         self._ai_text = []
+        self._ai_move = None
+        self._ai_state = None
         
     def next_player(self, player, num_players):
         player += 1
@@ -281,7 +297,7 @@ class Connect3DGame(object):
         current_player = random.choice(_range_players)
         
         if pygame:
-            return
+            return GameCore(self).play(players=players)
         
         max_go = self.core._size_cubed - 1
         count_shuffle = 0
@@ -758,7 +774,9 @@ class ArtificialIntelligence(object):
         ai_text('Chosen Move: {}'.format(next_move))
         ai_text('Calculations: {}'.format(self.calculations + 1))
         
-        print state, self.game._ai_text
+        #print state, self.game._ai_text
+        self.game._ai_state = state
+        self.game._ai_move = next_move
         return next_move
         
 
@@ -880,22 +898,27 @@ class DrawData(object):
         x = int((dy - dx) // 2)
         y = int((dy + dx) // 2)
         
-        n = self.segments
+        n = self.core.size
         if 0 <= x < n and 0 <= y < n and 0 <= z < n:
-            return n ** 3 - 1 - (x + n * (y + n * z))
+            return (y + n * (x + n * z))
         else:
             return None
             
             
 
 class GameCore(object):
+
+    FPS_IDLE = 15
+    FPS_MAIN = 30
+    FPS_SMOOTH = 120
     
     def __init__(self, C3DGame):
         self.C3DGame = C3DGame
         self.WIDTH = 640
         self.HEIGHT = 960
-        self.FPS = None
+        self.FPS = self.FPS_IDLE
         self.TICKS = 120
+        
         
         self.player_colours = [GREEN, LIGHTBLUE]
     
@@ -908,7 +931,7 @@ class GameCore(object):
         length = 200
         angle = 26
         padding = 2
-        angle_limits = (26, 35)
+        angle_limits = (26, 40)
         
         offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT / 40)
         freeze_edit = False
@@ -963,7 +986,7 @@ class GameCore(object):
         
         core = self.C3DGame.core
         for i in core._range_lg:
-            if core.grid[i]:
+            if core.grid[i] or i == self.temp_data['Hover']:
                 chunk = i // core._size_squared
                 base_coordinate = self.draw.relative_coordinates[i % core._size_squared]
                 coordinate = (base_coordinate[0] + self.draw.offset[0], 
@@ -980,10 +1003,9 @@ class GameCore(object):
                           
                 #Player has mouse over square
                 block_colour = None
-                if not core.grid[i] and False:
-                
-                    if game_data['players'][self.player] is False:
-                        block_colour = mix_colour(WHITE, WHITE, self.player_colours[self.player])
+                if not core.grid[i]:
+                    #self.temp_data['Hover']
+                    block_colour = mix_colour(WHITE, WHITE, self.player_colours[self._player - 1])
                 
                 #Square is taken by a player
                 else:
@@ -1018,15 +1040,93 @@ class GameCore(object):
         for line in self.draw.line_coordinates:
             pygame.draw.aaline(self.screen_grid,
                                BLACK, line[0], line[1], 1)
-        
     
-    def play(self):
+    def run_ai(self, run=True):
+        """Runs the AI in a thread.
+        Until _ai_move or _ai_state is not None, it is not completed.
+        """
+        self.C3DGame._ai_move = self.C3DGame._ai_state = None
+        if run:
+            ThreadHelper(self.C3DGame.ai.calculate_move, 
+                         self._player, 
+                         difficulty=self._player_type[self._player - 1], 
+                         _range=self._range_players).start()
+
+            
+    def play(self, players=(1, 3)):
     
         #Initialise screen
         pygame.init()
+        self.temp_data = {'Hover': None}
+        
+        num_players = len(players)
+        self._range_players = [i + 1 for i in range(num_players)]
+        self._player = random.choice(self._range_players)
+        self._player_type = [i - 1 for i in players]
+        #self.C3DGame.next_player(self._player, num_players)
+        
         self.resize_screen()
         self.state = 'Main'
         
+        GT = GameTime(self.FPS, self.TICKS)
+        
+        self.run_ai()
+        
+        #self.ai.calculate_move(current_player, difficulty=player_type, _range=_range_players)
+        while True:
+            with GameTimeLoop(GT) as game_time:
+            
+                #Store frame specific things so you don't need to call it multiple times
+                self.frame_data = {'Redraw': False,
+                                   'Events': pygame.event.get(),
+                                   'Keys': pygame.key.get_pressed(),
+                                   'MousePos': pygame.mouse.get_pos(),
+                                   'MouseClick': pygame.mouse.get_pressed(),
+                                   'MouseUse': False}
+                if self.frame_data['Keys'][pygame.K_ESCAPE]:
+                    return self.end()
+                    
+                #Handle quitting and resizing window
+                for event in self.frame_data['Events']:
+                    if event.type == pygame.QUIT:
+                        return self.end()
+                        
+                    elif event.type == pygame.VIDEORESIZE:
+                        self.WIDTH, self.HEIGHT = event.dict['size']
+                        self.resize_screen()
+                        self.frame_data['Redraw'] = True
+                        
+                    if event.type in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEMOTION):
+                        self.frame_data['MouseUse'] = True
+                    
+                #---MAIN LOOP START---#
+                
+                
+                self.game_main(game_time)
+                if self.C3DGame._ai_move is not None:
+                    print self.C3DGame._ai_move, self.C3DGame._ai_state
+                    self.run_ai(run=False)
+                
+                #---MAIN LOOP END---#
+                if game_time.fps:
+                    pygame.display.set_caption('{}'.format(game_time.fps))
+                    
+
+    def game_main(self, game_time):
+        
+        if self.frame_data['MouseUse']:
+            game_time.temp_fps(self.FPS_MAIN)
+            mouse_block_id = self.draw.game_to_block_index(*self.frame_data['MousePos'])
+            if mouse_block_id is not None:
+                #mouse_block_taken = bool(self.C3DGame.core.grid[mouse_block_id])
+                self.temp_data['Hover'] = mouse_block_id
+            else:
+                self.temp_data['Hover'] = None
+            self.set_grid_blocks()
+            self.frame_data['Redraw'] = True
+            
+            
+                
         '''                       
             #Update mouse information
             if game_flags['mouse_used'] or game_flags['recalculate']:
@@ -1041,41 +1141,8 @@ class GameCore(object):
                     block_data['taken'] = self.C3DObject.grid_data[block_data['id']] != ''
             
                                  '''
-        
-        GT = GameTime(self.FPS, self.TICKS)
-        while True:
-            with GameTimeLoop(GT) as game_time:
-            
-                #Store frame specific things so you don't need to call it multiple times
-                self.frame_data = {'Redraw': False,
-                                   'Events': pygame.event.get(),
-                                   'Keys': pygame.key.get_pressed(),
-                                   'MousePos': pygame.mouse.get_pos(),
-                                   'MouseClick': pygame.mouse.get_pressed()}
-                if self.frame_data['Keys'][pygame.K_ESCAPE]:
-                    return self.end()
-                    
-                #Handle quitting and resizing window
-                for event in self.frame_data['Events']:
-                    if event.type == pygame.QUIT:
-                        return self.end()
-                    elif event.type == pygame.VIDEORESIZE:
-                        self.WIDTH, self.HEIGHT = event.dict['size']
-                        self.resize_screen()
-                        self.frame_data['Redraw'] = True
-
-                #---MAIN LOOP START---#
-                
-                
-                self.game_main()
-                
-                
-                #---MAIN LOOP END---#
-                if game_time.fps:
-                    pygame.display.set_caption('{}'.format(game_time.fps))
-                    
-
-    def game_main(self):
+                                 
+                                 
         if self.frame_data['Redraw']:
             self.screen.fill((255, 255, 255))
             
@@ -1088,4 +1155,5 @@ class GameCore(object):
                     
 c = Connect3DGame.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
 print c.core
-GameCore(c).play()
+c.play()
+#GameCore(c).play()
