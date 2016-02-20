@@ -933,12 +933,14 @@ class ArtificialIntelligence(object):
         """
         if level is None:
             level = self.DEFAULT_DIFFICULTY
-            
-        return [(75, 95, 1, False),
-                (50, 75, 2, False),
-                (40, 50, 3, False),
-                (20, 25, 3, True),
-                (0, 0, 1, True)][level]
+        
+        level_data = [(75, 95, 1, False), #Beginner
+                      (50, 75, 2, False), #Easy
+                      (40, 50, 3, False), #Medium
+                      (20, 25, 3, True),  #Hard
+                      (0, 0, 1, True)]    #Extreme
+                      
+        return level_data[level]
         
 
 #PYGAME STUFF
@@ -1092,16 +1094,19 @@ class GameCore(object):
                 
             if not edited:
                 break
-                
+        
                 
         #Set font sizes
         self.text_padding = self.HEIGHT / 96
+        self.width_padding = 5
         self.font_lg = pygame.font.Font(self.font_file, self.HEIGHT // 28)
         self.font_lg_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
         self.font_md = pygame.font.Font(self.font_file, self.HEIGHT // 40)
         self.font_md_size = self.font_md.render('', 1, BLACK).get_rect()[3]
         self.font_sm = pygame.font.Font(self.font_file, self.HEIGHT // 45)
         self.font_sm_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
+        
+        self.score_width = None
         
         #Update surfaces
         self.set_grid_overlay()
@@ -1204,14 +1209,7 @@ class GameCore(object):
             size = font.get_rect()[2:]
             self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
 
-        '''
-        
-        if winning_player is not None and False:
-            if len(winning_player) == 1:
-                print 'Player {} won!'.format(winning_player[0])
-            else:
-                print 'The game was a draw!'
-                '''
+            
         
         #Display winner
         if self.temp_data['Winner'] is not None:
@@ -1234,87 +1232,90 @@ class GameCore(object):
         
             
         font = self.font_lg.render(message, 1, BLACK)
-        size = font.get_rect()[2:]
-        self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3))
+        main_size = font.get_rect()[2:]
+        self.screen_title.blit(font, ((self.WIDTH - main_size[0]) / 2, self.text_padding * 3))
         
-        
-        '''
-        
-    def _draw_score(self, players, winner, pending_move=False, flipped=False, time_left=None, switched_player=False):
-        """Draw the title."""
-        
-        
-        
-        if time_left is not None:
-            time_left = int(time_left)
-            time_message = str(time_left) + ' second'
-            if time_left != 1:
-                time_message += 's'
-            time_font = self.font_sm.render(time_message, 1, (0, 0, 0))
-            time_size = time_font.get_rect()[2:]
-            self.screen.blit(time_font,
-                             ((self.width - time_size[0]) / 2,
-                              self.PADDING_TEXT[1] * 1))
-        
-        if winner is None:
-            if pending_move:
-                go_message = '{} is moving...'.format(self.player_names[pending_move[0]])
-            elif players[self.player] is not False:
-                go_message = '{} is thinking...'.format(self.player_names[self.player])
-            else:
-                go_message = "{}'s turn!".format(self.player_names[self.player])
-        else:
-            if len(winner) != 1:
-                go_message = 'The game was a draw!'
-            else:
-                go_message = '{} won!'.format(self.player_names[winner[0]])
-                
-                
-                
-                
-        #Format scores
-        point_marker = '/'
-        p0_points = self.C3DObject.current_points[0]
-        p1_points = self.C3DObject.current_points[1]
-        
-        p0_font_top = self.font_md.render('{}'.format(self.player_names[0]), 1,  BLACK, self.player_colours[0])
-        p1_font_top = self.font_md.render('{}'.format(self.player_names[1]), 1, BLACK, self.player_colours[1])
-        p_size_top = p1_font_top.get_rect()[2:]
-        
-        p0_height = self.PADDING_TEXT[1] + p_size_top[1]
-        for i in range(p0_points / 10 + 1):
-            num_points = 10 if (i + 1) * 10 <= p0_points else p0_points % 10
-            p0_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
-            p_size_bottom = p0_font_bottom.get_rect()[2:]
-            self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], p0_height))
-            p0_height += p_size_bottom[1] - self.PADDING_TEXT[1]
+        #Get two highest scores (or default to player 1 and 2)
+        #If matching scores, get lowest player
+        score = dict(self.game.core.score)
+        score = {1: 17, 2:153, 3: 7, 4: 17}
+        try:
+            max_score = max(score.iteritems(), key=itemgetter(1))[1]
+            player1, score1 = min(((p, s) for p, s in score.iteritems() if s == max_score), key=itemgetter(0))
+            del score[player1]
+            if not score1:
+                raise ValueError()
+        except ValueError:
+            player1 = 1
+            score1 = 0
+        try:
+            max_score = max(score.iteritems(), key=itemgetter(1))[1]
+            player2, score2 = min(((p, s) for p, s in score.iteritems() if s == max_score), key=itemgetter(0))
+            if not score2:
+                raise ValueError()
+        except ValueError:
+            player2 = 2 if player1 == 1 else 1
+            score2 = 0
             
-        p1_height = self.PADDING_TEXT[1] + p_size_top[1]
-        for i in range(p1_points / 10 + 1):
-            num_points = 10 if (i + 1) * 10 <= p1_points else p1_points % 10
-            p1_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
-            p_size_bottom = p1_font_bottom.get_rect()[2:]
-            self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], p1_height))
-            p1_height += p_size_bottom[1] - self.PADDING_TEXT[1]
-
+        #Switch values so lowest player will come first
+        if player2 < player1:
+            _player = player2
+            _score = score2
+            player2 = player1
+            score2 = score1
+            player1 = _player
+            score1 = _score
         
-        self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
-        self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
-
+        point_display = '/'
         
-        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.PADDING_TEXT[1] * 3))
-        self.screen.blit(p0_font_top, (self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
-        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
-
+        #Adjust number of points in a row to display
+        if self.score_width is None:
+            size_remaining = (self.WIDTH - main_size[0]) / 2
+            current_size = 0
+            n = 9
+            while current_size < size_remaining:
+                current_size = self.font_lg.render(point_display * n, 1, BLACK).get_rect()[2]
+                n += 1
+            self.score_width = n - 4
+            
+        #Score 1
+        upper_font = self.font_md.render('Player {}'.format(player1), 1, BLACK, self.player_colours[player1 - 1])
+        upper_size = upper_font.get_rect()[2:]
+        self.screen_title.blit(upper_font, (self.width_padding, self.text_padding))
+        
+        current_height = self.text_padding + upper_size[1]
+        for i in range(score1 // self.score_width + 1):
+            points = self.score_width if (i + 1) * self.score_width <= score1 else score1 % self.score_width
+            lower_font = self.font_lg.render(point_display * points, 1, BLACK)
+            lower_size = lower_font.get_rect()[2:]
+            self.screen_title.blit(lower_font, (self.width_padding, current_height))
+            current_height += lower_size[1] - self.text_padding
+        
+        #self.screen.blit(lower_font, (self.width_padding, self.text_padding + upper_size[1]))
+        
+        #Score 2
+        upper_font = self.font_md.render('Player {}'.format(player2), 1, BLACK, self.player_colours[player2 - 1])
+        upper_size = upper_font.get_rect()[2:]
+        self.screen_title.blit(upper_font, (self.WIDTH - upper_size[0] - self.width_padding, self.text_padding))
+        
+        current_height = self.text_padding + upper_size[1]
+        for i in range(score2 // self.score_width + 1):
+            points = self.score_width if (i + 1) * self.score_width <= score2 else score2 % self.score_width
+            lower_font = self.font_lg.render(point_display * points, 1, BLACK)
+            lower_size = lower_font.get_rect()[2:]
+            self.screen_title.blit(lower_font, (self.WIDTH - lower_size[0] - self.text_padding, current_height))
+            current_height += lower_size[1] - self.text_padding
+            
+        #Flipped grid
+        flipped = True
+        if flipped:
+            message = 'Grid was flipped!'
+            font = self.font_md.render(message, 1, (0, 0, 0))
+            size = font.get_rect()[2:]
+            self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
+        '''
         if switched_player:
             flipped_message = 'Switched players! ({} took too long)'.format(switched_player)
-            flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
-            flipped_size = flipped_font.get_rect()[2:]
-            self.screen.blit(flipped_font,
-                             ((self.width - flipped_size[0]) / 2,
-                              self.PADDING_TEXT[1] * 3 + go_size[1]))
-        elif flipped:
-            flipped_message = 'Grid was flipped!'
             flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
             flipped_size = flipped_font.get_rect()[2:]
             self.screen.blit(flipped_font,
@@ -1515,7 +1516,7 @@ class GameCore(object):
             #Computer player
             elif self.game._ai_running is False:
             
-                if self.temp_data['Winner'] is not None:
+                if self.temp_data['Winner'] is None:
                 
                     #Move has not started yet
                     if self.game._ai_move is None:
@@ -1529,8 +1530,9 @@ class GameCore(object):
                                                          True]
                                                          
                         self.run_ai(run=False)
-                        self.set_grid_blocks()
                         
+                self.set_game_title()
+                self.set_grid_blocks()
                 self.frame_data['Redraw'] = True
         
         #Commit the move
@@ -1575,7 +1577,7 @@ class GameCore(object):
     
     
     
-c = Connect3DGame()#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
+c = Connect3DGame(size=4)#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
 #print c.core
-c.play((5,5))
+c.play((0, 0))
 #GameCore(c).play()
