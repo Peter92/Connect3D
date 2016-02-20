@@ -1008,17 +1008,17 @@ class DrawData(object):
 
 class GameCore(object):
 
-    FPS_IDLE = 15
+    FPS_IDLE = 22
     FPS_MAIN = 30
     FPS_SMOOTH = 120
+    TICKS = 120
     WAIT = 60
+    WIDTH = 640
+    HEIGHT = 960
     
     def __init__(self, C3DGame):
         self.game = C3DGame
-        self.WIDTH = 640
-        self.HEIGHT = 960
-        self.FPS = self.FPS_IDLE
-        self.TICKS = 120
+        self.move_timer = 10
         
         self.player_colours = [GREEN, LIGHTBLUE, YELLOW, RED, PURPLE, ORANGE]
         random.shuffle(self.player_colours)
@@ -1175,17 +1175,18 @@ class GameCore(object):
             pygame.draw.aaline(self.screen_grid,
                                BLACK, line[0], line[1], 1)
     
-    def set_game_title(self):
-        self.screen_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
-        
-        time_left = 57
-        if time_left is not None:
+    def set_game_time(self):
+        """Needs fast updates."""
+        self.screen_time = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        if self.temp_data['MoveTimeLeft'] is not None:
+            time_left = self.temp_data['MoveTimeLeft'] // self.TICKS + 1
             message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
             font = self.font_sm.render(message, 1, BLACK)
             size = font.get_rect()[2:]
-            self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
-
-            
+            self.screen_time.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
+    
+    def set_game_title(self):
+        self.screen_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         
         #Display winner
         if self.temp_data['Winner'] is not None:
@@ -1194,8 +1195,11 @@ class GameCore(object):
             else:
                 message = "The game was a draw!"
         
+        elif self.game._ai_running:
+            message = "Player {} is thinking...".format(self._player)
+        
         #Don't instantly switch to player is thinking as it could be a quick click
-        elif (self.temp_data['PendingMove'] is None 
+        elif (self.temp_data['PendingMove'] is None
             or (not self.temp_data['PendingMove'][3] 
                 and self.temp_data['PendingMove'][1] > self.frame_data['GameTime'].total_ticks)):
             message = "Player {}'s turn!".format(self._player)
@@ -1312,7 +1316,8 @@ class GameCore(object):
                           'Winner': None,
                           'ShuffleCount': 0,
                           'Flipped': False,
-                          'Skipped': False}
+                          'Skipped': False,
+                          'MoveTimeLeft': None}
         
         self._player_count = len(players)
         self._range_players = [i + 1 for i in range(self._player_count)]
@@ -1328,14 +1333,17 @@ class GameCore(object):
             print 'Failed to load font'
             return
         
+        #Adjust width and height to fit on screen
+        screen_height = pygame.display.Info().current_h * 0.9
+        height_multiplier = int(screen_height / 16)
+        height_ratio = self.WIDTH / self.HEIGHT
+        self.HEIGHT = height_multiplier * 16
+        self.WIDTH = int(self.HEIGHT * height_ratio)
+        
         self.resize_screen()
         self.state = 'Main'
         
-        GT = GameTime(self.FPS, self.TICKS)
-        
-        self.run_ai()
-        
-        #self.ai.calculate_move(current_player, difficulty=player_type, _range=_range_players)
+        GT = GameTime(self.FPS_IDLE, self.TICKS)
         while True:
             with GameTimeLoop(GT) as game_time:
             
@@ -1389,20 +1397,7 @@ class GameCore(object):
 
     def game_main(self):
         
-        '''
-        #End of game
-        winning_player = self.game.check_game_end(self._range_players)
-        if winning_player is not None and False:
-            if len(winning_player) == 1:
-                print 'Player {} won!'.format(winning_player[0])
-            else:
-                print 'The game was a draw!'
-            self.end()
-            return
-            '''
-        
         player_type = self._player_types[self._player - 1]
-        
         
         #Moved mouse
         mouse_block_id = None
@@ -1446,6 +1441,9 @@ class GameCore(object):
         
             #Human player
             if player_type < 0:
+            
+                if self.temp_data['MoveTimeLeft'] is None and self.move_timer:
+                   self.temp_data['MoveTimeLeft'] = self.TICKS * self.move_timer
                     
                 #Mouse button clicked
                 if self.frame_data['MouseClick'][0]:
@@ -1478,9 +1476,9 @@ class GameCore(object):
                     else:
                         self.temp_data['PendingMove'] = None
                 
-                
                 self.set_grid_blocks()
                 self.frame_data['Redraw'] = True
+                
             
             #Computer player
             elif self.game._ai_running is False:
@@ -1519,7 +1517,9 @@ class GameCore(object):
                     self.temp_data['PendingMove'] = block_id = wait_until = None
                     
                 if block_id is not None and accept and self.frame_data['GameTime'].total_ticks > wait_until:
+                    self.temp_data['MoveTimeLeft'] = None
                     self.temp_data['PendingMove'] = None
+                    self.temp_data['Skipped'] = False
                     self.game.core.grid[block_id] = self._player
                     self._player = self.game.next_player(self._player, self._player_count)
                     
@@ -1539,7 +1539,18 @@ class GameCore(object):
             self.frame_data['Redraw'] = True
             self.temp_data['Winner'] = self.game.check_game_end(self._range_players)
         
-            
+        #Count ticks down
+        if self.temp_data['MoveTimeLeft'] is not None:
+            self.temp_data['MoveTimeLeft'] -= self.frame_data['GameTime'].ticks
+            self.set_game_time()
+            if self.temp_data['MoveTimeLeft'] < 0:
+                self.temp_data['MoveTimeLeft'] = None
+                self.temp_data['Skipped'] = True
+                self._player = self.game.next_player(self._player, self._player_count)
+                self.set_game_title()
+                return
+                
+        #Draw frame
         if self.frame_data['Redraw']:
             self.screen.fill((255, 255, 255))
             
@@ -1549,6 +1560,8 @@ class GameCore(object):
             self.screen.blit(self.screen_blocks, grid_location)
             self.screen.blit(self.screen_grid, grid_location)
             self.screen.blit(self.screen_title, grid_location)
+            if self.temp_data['MoveTimeLeft'] is not None:
+                self.screen.blit(self.screen_time, grid_location)
             pygame.display.flip()
             
     
@@ -1556,5 +1569,5 @@ class GameCore(object):
     
 c = Connect3DGame(size=4)#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
 #print c.core
-c.play((0, 0))
+c.play((0, 5))
 #GameCore(c).play()
