@@ -721,10 +721,11 @@ class ArtificialIntelligence(object):
         """
         
         #Try initial check
-        if not extensive_look:
-            match = self.points_immediateneighbour(player_range=_range)
-            if match:
+        
+        match = self.points_immediateneighbour(player_range=player_range)
+        if match and not extensive_look:
                 return match, True
+        near = bool(match)
             
         #For every grid cell, substitute a player into it, then do the check again
         grid = bytearray(self.game.core.grid)
@@ -742,7 +743,7 @@ class ArtificialIntelligence(object):
                 grid[i] = old_value
         
         if matches:
-            return matches, False
+            return matches, near
             
         return defaultdict(list), False
         
@@ -766,22 +767,22 @@ class ArtificialIntelligence(object):
         if _range is None:
             _range = (1, 2)
         
-        chance_tactic, chance_ignore, chance_ignore_offset = self.difficulty(difficulty)
+        chance_tactic, chance_ignore, chance_ignore_offset, extensive_look = self.difficulty(difficulty)
         
         total_moves = len([i for i in self.game.core.grid if i])
         self.calculations = 0
-        ai_text = self.game._ai_text.append
         next_moves = []
         
         self.game._ai_text = []
         self.game._ai_state = None
         self.game._ai_move = None
+        ai_text = self.game._ai_text.append
         
         #Skip the first few moves since they need the most calculations
         if total_moves >= (self.game.core.size - 2) * len(_range):
             
             #Calculate move
-            move_points, is_near = self.points_nearneighbour(player_range=_range)
+            move_points, is_near = self.points_nearneighbour(player_range=_range, extensive_look=extensive_look)
             ai_text('Urgent: {}'.format(is_near))
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
@@ -853,7 +854,7 @@ class ArtificialIntelligence(object):
             #Quite an advanced tactic so chance of not noticing is increased
             if chance_notice_advanced:
                 for i in (1, 0):
-                    if order_player[i] in max_points:
+                    if order_player[i] in max_points and max_points[order_player[i]][1] > 1:
                         next_moves = max_points[order_player[i]][0]
                         self.game._ai_state = 'Forward thinking ({})'.format(order_text[i])
             
@@ -933,11 +934,11 @@ class ArtificialIntelligence(object):
         if level is None:
             level = self.DEFAULT_DIFFICULTY
             
-        return [(75, 95, 1),
-                (50, 75, 2),
-                (40, 50, 3),
-                (20, 25, 3),
-                (0, 0, 1)][level]
+        return [(75, 95, 1, False),
+                (50, 75, 2, False),
+                (40, 50, 3, False),
+                (20, 25, 3, True),
+                (0, 0, 1, True)][level]
         
 
 #PYGAME STUFF
@@ -1052,7 +1053,7 @@ class GameCore(object):
         #Set length and angle to fit on the screen
         length = 200
         angle = 26
-        padding = 2
+        padding = 4
         angle_limits = (26, 40)
         
         offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT / 40)
@@ -1093,8 +1094,20 @@ class GameCore(object):
                 break
                 
                 
+        #Set font sizes
+        self.text_padding = self.HEIGHT / 96
+        self.font_lg = pygame.font.Font(self.font_file, self.HEIGHT // 28)
+        self.font_lg_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
+        self.font_md = pygame.font.Font(self.font_file, self.HEIGHT // 40)
+        self.font_md_size = self.font_md.render('', 1, BLACK).get_rect()[3]
+        self.font_sm = pygame.font.Font(self.font_file, self.HEIGHT // 45)
+        self.font_sm_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
+        
+        #Update surfaces
         self.set_grid_overlay()
         self.set_grid_blocks()
+        self.set_game_title()
+        
 
     def end(self):
         """Handle ending the game from anywhere."""
@@ -1102,13 +1115,11 @@ class GameCore(object):
     
     def set_grid_blocks(self):
     
-        #Create surface
         self.screen_blocks = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         
         hover = self.temp_data['Hover']
         pending = self.temp_data['PendingMove']
         early = self.temp_data['EarlyClick']
-        
         extra = [hover, pending, early]
         try:
             extra[0] = extra[0][0]
@@ -1172,7 +1183,6 @@ class GameCore(object):
                     pygame.draw.polygon(self.screen_blocks,
                                         block_colour, square, 0)
                                         
-                                        
     def set_grid_overlay(self):
         """Draws the grid outline to a surface."""
         
@@ -1183,6 +1193,135 @@ class GameCore(object):
         for line in self.draw.line_coordinates:
             pygame.draw.aaline(self.screen_grid,
                                BLACK, line[0], line[1], 1)
+    
+    def set_game_title(self):
+        self.screen_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        
+        time_left = 57
+        if time_left is not None:
+            message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
+            font = self.font_sm.render(message, 1, BLACK)
+            size = font.get_rect()[2:]
+            self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
+
+        '''
+        
+        if winning_player is not None and False:
+            if len(winning_player) == 1:
+                print 'Player {} won!'.format(winning_player[0])
+            else:
+                print 'The game was a draw!'
+                '''
+        
+        #Display winner
+        if self.temp_data['Winner'] is not None:
+            if len(self.temp_data['Winner']) == 1:
+                message = "Player {} won!".format(self.temp_data['Winner'][0])
+            else:
+                message = "The game was a draw!"
+        
+        #Don't instantly switch to player is thinking as it could be a quick click
+        elif (self.temp_data['PendingMove'] is None 
+            or (not self.temp_data['PendingMove'][3] 
+                and self.temp_data['PendingMove'][1] > self.frame_data['GameTime'].total_ticks)):
+            message = "Player {}'s turn!".format(self._player)
+            
+        else:
+            if self.temp_data['PendingMove'][3]:
+                message = "Player {} is moving...".format(self._player)
+            else:
+                message = "Player {} is thinking...".format(self._player)
+        
+            
+        font = self.font_lg.render(message, 1, BLACK)
+        size = font.get_rect()[2:]
+        self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3))
+        
+        
+        '''
+        
+    def _draw_score(self, players, winner, pending_move=False, flipped=False, time_left=None, switched_player=False):
+        """Draw the title."""
+        
+        
+        
+        if time_left is not None:
+            time_left = int(time_left)
+            time_message = str(time_left) + ' second'
+            if time_left != 1:
+                time_message += 's'
+            time_font = self.font_sm.render(time_message, 1, (0, 0, 0))
+            time_size = time_font.get_rect()[2:]
+            self.screen.blit(time_font,
+                             ((self.width - time_size[0]) / 2,
+                              self.PADDING_TEXT[1] * 1))
+        
+        if winner is None:
+            if pending_move:
+                go_message = '{} is moving...'.format(self.player_names[pending_move[0]])
+            elif players[self.player] is not False:
+                go_message = '{} is thinking...'.format(self.player_names[self.player])
+            else:
+                go_message = "{}'s turn!".format(self.player_names[self.player])
+        else:
+            if len(winner) != 1:
+                go_message = 'The game was a draw!'
+            else:
+                go_message = '{} won!'.format(self.player_names[winner[0]])
+                
+                
+                
+                
+        #Format scores
+        point_marker = '/'
+        p0_points = self.C3DObject.current_points[0]
+        p1_points = self.C3DObject.current_points[1]
+        
+        p0_font_top = self.font_md.render('{}'.format(self.player_names[0]), 1,  BLACK, self.player_colours[0])
+        p1_font_top = self.font_md.render('{}'.format(self.player_names[1]), 1, BLACK, self.player_colours[1])
+        p_size_top = p1_font_top.get_rect()[2:]
+        
+        p0_height = self.PADDING_TEXT[1] + p_size_top[1]
+        for i in range(p0_points / 10 + 1):
+            num_points = 10 if (i + 1) * 10 <= p0_points else p0_points % 10
+            p0_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
+            p_size_bottom = p0_font_bottom.get_rect()[2:]
+            self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], p0_height))
+            p0_height += p_size_bottom[1] - self.PADDING_TEXT[1]
+            
+        p1_height = self.PADDING_TEXT[1] + p_size_top[1]
+        for i in range(p1_points / 10 + 1):
+            num_points = 10 if (i + 1) * 10 <= p1_points else p1_points % 10
+            p1_font_bottom = self.font_lg.render(point_marker * num_points, 1,  BLACK)
+            p_size_bottom = p1_font_bottom.get_rect()[2:]
+            self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], p1_height))
+            p1_height += p_size_bottom[1] - self.PADDING_TEXT[1]
+
+        
+        self.screen.blit(p0_font_bottom, (self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
+        self.screen.blit(p1_font_bottom, (self.width - p_size_bottom[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1] + p_size_top[1]))
+
+        
+        self.screen.blit(go_font, ((self.width - go_size[0]) / 2, self.PADDING_TEXT[1] * 3))
+        self.screen.blit(p0_font_top, (self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+        self.screen.blit(p1_font_top, (self.width - p_size_top[0] - self.PADDING_TEXT[0], self.PADDING_TEXT[1]))
+
+        if switched_player:
+            flipped_message = 'Switched players! ({} took too long)'.format(switched_player)
+            flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
+            flipped_size = flipped_font.get_rect()[2:]
+            self.screen.blit(flipped_font,
+                             ((self.width - flipped_size[0]) / 2,
+                              self.PADDING_TEXT[1] * 3 + go_size[1]))
+        elif flipped:
+            flipped_message = 'Grid was flipped!'
+            flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
+            flipped_size = flipped_font.get_rect()[2:]
+            self.screen.blit(flipped_font,
+                             ((self.width - flipped_size[0]) / 2,
+                              self.PADDING_TEXT[1] * 3 + go_size[1]))
+                              '''
+        
     
     def run_ai(self, run=True):
         """Runs the AI in a thread.
@@ -1202,13 +1341,22 @@ class GameCore(object):
         pygame.init()
         self.temp_data = {'Hover': None,
                           'PendingMove': None,
-                          'EarlyClick': None}
+                          'EarlyClick': None,
+                          'Winner': None}
         
         self._player_count = len(players)
         self._range_players = [i + 1 for i in range(self._player_count)]
         self._player = random.choice(self._range_players)
         self._player_types = [i - 1 for i in players]
         #self.game.next_player(self._player, num_players)
+        
+        #Import the font
+        self.font_file = 'Miss Monkey.ttf'
+        try:
+            pygame.font.Font(self.font_file, 0)
+        except IOError:
+            print 'Failed to load font'
+            return
         
         self.resize_screen()
         self.state = 'Main'
@@ -1222,7 +1370,8 @@ class GameCore(object):
             with GameTimeLoop(GT) as game_time:
             
                 #Store frame specific things so you don't need to call it multiple times
-                self.frame_data = {'Redraw': False,
+                self.frame_data = {'GameTime': game_time,
+                                   'Redraw': False,
                                    'Events': pygame.event.get(),
                                    'Keys': pygame.key.get_pressed(),
                                    'MousePos': pygame.mouse.get_pos(),
@@ -1255,7 +1404,7 @@ class GameCore(object):
                 
                 
                 if self.state == 'Main':
-                    self.game_main(game_time)
+                    self.game_main()
                 
                 '''
                 if self.game._ai_move is not None:
@@ -1268,8 +1417,9 @@ class GameCore(object):
                     pygame.display.set_caption('{}'.format(game_time.fps))
                     
 
-    def game_main(self, game_time):
+    def game_main(self):
         
+        '''
         #End of game
         winning_player = self.game.check_game_end(self._range_players)
         if winning_player is not None and False:
@@ -1279,6 +1429,7 @@ class GameCore(object):
                 print 'The game was a draw!'
             self.end()
             return
+            '''
         
         player_type = self._player_types[self._player - 1]
         
@@ -1287,26 +1438,27 @@ class GameCore(object):
         mouse_block_id = None
         if self.frame_data['MouseUse']:
             
-            game_time.temp_fps(self.FPS_MAIN)
+            self.frame_data['GameTime'].temp_fps(self.FPS_MAIN)
             mouse_block_id = self.draw.game_to_block_index(*self.frame_data['MousePos'])
-            pending = self.temp_data['PendingMove']
+            
+            #Disable mouse if winner
+            if self.temp_data['Winner'] is not None:
+                mouse_block_id = None
             
             #Enemy has finished their go, gets rid of the 'frozen game' effect
-            if pending is not None and pending[3]:
+            if self.temp_data['PendingMove'] is not None and self.temp_data['PendingMove'][3]:
                 next_player = self.game.next_player(self._player, self._player_count)
                 
                 #Re-activate hover if next player is human
                 if self._player_types[next_player - 1] < 0:
                     self.temp_data['Hover'] = [mouse_block_id, next_player]
-                    #if self.frame_data['MouseClick'][0]:
-                    #    self.temp_data['EarlyClick'] = self.temp_data['Hover']
                     
                 else:
                     self.temp_data['Hover'] = None
             
             #Players go
             elif player_type < 0:
-                if pending is None:
+                if self.temp_data['PendingMove'] is None:
                     self.temp_data['Hover'] = [mouse_block_id, self._player]
                 else:
                     self.temp_data['Hover'] = None
@@ -1314,9 +1466,10 @@ class GameCore(object):
             else:
                 self.temp_data['Hover'] = None
                 
-                
+            self.set_game_title()
             self.set_grid_blocks()
             self.frame_data['Redraw'] = True
+            
         
         #Move not yet made
         if self.temp_data['PendingMove'] is None or not self.temp_data['PendingMove'][3]:
@@ -1330,7 +1483,10 @@ class GameCore(object):
                     #Player has just clicked
                     if self.temp_data['PendingMove'] is None:
                         if mouse_block_id is not None and not self.game.core.grid[mouse_block_id]:
-                            self.temp_data['PendingMove'] = [mouse_block_id, game_time.total_ticks + self.WAIT, True, False]
+                            self.temp_data['PendingMove'] = [mouse_block_id, 
+                                                             self.frame_data['GameTime'].total_ticks + self.WAIT, 
+                                                             True, 
+                                                             False]
                     
                     #Player is holding click over the block
                     elif mouse_block_id == self.temp_data['PendingMove'][0]:
@@ -1359,17 +1515,23 @@ class GameCore(object):
             #Computer player
             elif self.game._ai_running is False:
             
-                #Start move
-                if self.game._ai_move is None:
-                    self.run_ai()
+                if self.temp_data['Winner'] is not None:
                 
-                #Move calculated
-                else:
-                    self.temp_data['PendingMove'] = (self.game._ai_move, game_time.total_ticks + self.WAIT, True, True)
-                    self.run_ai(run=False)
+                    #Move has not started yet
+                    if self.game._ai_move is None:
+                        self.run_ai()
                     
-                    self.set_grid_blocks()
-                    self.frame_data['Redraw'] = True
+                    #Move finished calculating
+                    else:
+                        self.temp_data['PendingMove'] = [self.game._ai_move, 
+                                                         self.frame_data['GameTime'].total_ticks + self.WAIT, 
+                                                         True, 
+                                                         True]
+                                                         
+                        self.run_ai(run=False)
+                        self.set_grid_blocks()
+                        
+                self.frame_data['Redraw'] = True
         
         #Commit the move
         else:
@@ -1385,7 +1547,7 @@ class GameCore(object):
                 if not accept and not hovering and not self.frame_data['MouseClick'][0]:
                     self.temp_data['PendingMove'] = block_id = wait_until = None
                     
-                if block_id is not None and accept and game_time.total_ticks > wait_until:
+                if block_id is not None and accept and self.frame_data['GameTime'].total_ticks > wait_until:
                     self.temp_data['PendingMove'] = None
                     self.game.core.grid[block_id] = self._player
                     self._player = self.game.next_player(self._player, self._player_count)
@@ -1393,6 +1555,10 @@ class GameCore(object):
                     self.set_grid_blocks()
                     self.frame_data['Redraw'] = True
                     self.game.core.calculate_score()
+        
+            self.set_game_title()
+            self.frame_data['Redraw'] = True
+            self.temp_data['Winner'] = self.game.check_game_end(self._range_players)
         
             
         if self.frame_data['Redraw']:
@@ -1403,10 +1569,13 @@ class GameCore(object):
             
             self.screen.blit(self.screen_blocks, grid_location)
             self.screen.blit(self.screen_grid, grid_location)
+            self.screen.blit(self.screen_title, grid_location)
             pygame.display.flip()
-
-
-c = Connect3DGame.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
+            
+    
+    
+    
+c = Connect3DGame()#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
 #print c.core
-c.play((0,0))
+c.play((5,5))
 #GameCore(c).play()
