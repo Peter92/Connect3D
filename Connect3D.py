@@ -240,7 +240,7 @@ class Connect3D(object):
             
         #Shuffle is disabled
         if not level:
-            return
+            return False
             
         all_flips = (self.flip.fx, self.flip.fy, self.flip.fz, 
                      self.flip.rx, self.flip.ry, self.flip.rz, self.flip.reverse)
@@ -251,6 +251,8 @@ class Connect3D(object):
         #Perform shuffle
         for i in shuffles:
             self.grid, operation = all_flips[i](self.grid)
+        
+        return True
         
 
     def set_grid(self, grid, update_score=True):
@@ -412,36 +414,10 @@ class Connect3DGame(object):
             if flipped:
                 flipped = False
                 print "Grid was flipped!"
-            if self._ai_text:
-                print self._ai_text
+            #if self._ai_text:
+            #    print self._ai_text
             self._ai_text = []
             
-            '''
-            #Check if any points are left to gain
-            points_left = True
-            end_early = True
-            if end_early:
-                potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in _range_players}
-                if any(self.core.score == potential_points[player] for player in _range_players):
-                    points_left = False
-                    
-            #Check if no spaces are left
-            if 0 not in self.core.grid or not points_left:
-                winning_player = get_max_keys(self.core.score)
-                if len(winning_player) == 1:
-                    print 'Player {} won!'.format(winning_player[0])
-                else:
-                    print 'The game was a draw!'
-                    
-                #Ask to play again and check if answer is a variant of 'yes' or 'ok'
-                print 'Play again?'
-                play_again = raw_input().lower()
-                if any(i in play_again for i in ('y', 'k')):
-                    self.core = Connect3D(size=self.core.size, shuffle_level=self.core.shuffle_level)
-                    return self.play()
-                else:
-                    return
-                    '''
             winning_player = self.check_game_end(_range_players)
             if winning_player is not None:
                 if len(winning_player) == 1:
@@ -1058,7 +1034,7 @@ class GameCore(object):
         padding = 4
         angle_limits = (26, 40)
         
-        offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT / 40)
+        offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT / 25)
         freeze_edit = False
         while True:
             edited = False
@@ -1066,8 +1042,8 @@ class GameCore(object):
             height = self.draw.chunk_height * self.game.core.size
             width = self.draw.size_x * 2
             
-            too_small = height < self.HEIGHT * 0.85, 
-            too_tall = height > self.HEIGHT * 0.9
+            too_small = height < self.HEIGHT * 0.87
+            too_tall = height > self.HEIGHT * 0.88
             too_thin = width < self.WIDTH * 0.85
             too_wide = width > self.WIDTH * 0.9
             
@@ -1238,7 +1214,6 @@ class GameCore(object):
         #Get two highest scores (or default to player 1 and 2)
         #If matching scores, get lowest player
         score = dict(self.game.core.score)
-        score = {1: 17, 2:153, 3: 7, 4: 17}
         try:
             max_score = max(score.iteritems(), key=itemgetter(1))[1]
             player1, score1 = min(((p, s) for p, s in score.iteritems() if s == max_score), key=itemgetter(0))
@@ -1272,7 +1247,7 @@ class GameCore(object):
         if self.score_width is None:
             size_remaining = (self.WIDTH - main_size[0]) / 2
             current_size = 0
-            n = 9
+            n = 9 #Start at minimum length of scores + 4
             while current_size < size_remaining:
                 current_size = self.font_lg.render(point_display * n, 1, BLACK).get_rect()[2]
                 n += 1
@@ -1291,8 +1266,6 @@ class GameCore(object):
             self.screen_title.blit(lower_font, (self.width_padding, current_height))
             current_height += lower_size[1] - self.text_padding
         
-        #self.screen.blit(lower_font, (self.width_padding, self.text_padding + upper_size[1]))
-        
         #Score 2
         upper_font = self.font_md.render('Player {}'.format(player2), 1, BLACK, self.player_colours[player2 - 1])
         upper_size = upper_font.get_rect()[2:]
@@ -1305,23 +1278,16 @@ class GameCore(object):
             lower_size = lower_font.get_rect()[2:]
             self.screen_title.blit(lower_font, (self.WIDTH - lower_size[0] - self.text_padding, current_height))
             current_height += lower_size[1] - self.text_padding
-            
-        #Flipped grid
-        flipped = True
-        if flipped:
-            message = 'Grid was flipped!'
+        
+        #Status message
+        if self.temp_data['Skipped'] or self.temp_data['Flipped']:
+            if self.temp_data['Skipped']:
+                message = 'Switched players! (Player {} took too long)'.format(self.game.previous_player(self._player, self._player_count))
+            elif self.temp_data['Flipped']:
+                message = 'Grid was flipped!'
             font = self.font_md.render(message, 1, (0, 0, 0))
             size = font.get_rect()[2:]
             self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
-        '''
-        if switched_player:
-            flipped_message = 'Switched players! ({} took too long)'.format(switched_player)
-            flipped_font = self.font_md.render(flipped_message, 1, (0, 0, 0))
-            flipped_size = flipped_font.get_rect()[2:]
-            self.screen.blit(flipped_font,
-                             ((self.width - flipped_size[0]) / 2,
-                              self.PADDING_TEXT[1] * 3 + go_size[1]))
-                              '''
         
     
     def run_ai(self, run=True):
@@ -1336,14 +1302,17 @@ class GameCore(object):
                          _range=self._range_players).start()
 
             
-    def play(self, players=(1, 3)):
+    def play(self, players):
     
         #Initialise screen
         pygame.init()
         self.temp_data = {'Hover': None,
                           'PendingMove': None,
                           'EarlyClick': None,
-                          'Winner': None}
+                          'Winner': None,
+                          'ShuffleCount': 0,
+                          'Flipped': False,
+                          'Skipped': False}
         
         self._player_count = len(players)
         self._range_players = [i + 1 for i in range(self._player_count)]
@@ -1557,6 +1526,14 @@ class GameCore(object):
                     self.set_grid_blocks()
                     self.frame_data['Redraw'] = True
                     self.game.core.calculate_score()
+                
+                    #Shuffle grid
+                    self.temp_data['ShuffleCount'] += 1
+                    if self.temp_data['ShuffleCount'] >= self.game.shuffle_turns:
+                        self.temp_data['ShuffleCount'] = 0
+                        self.temp_data['Flipped'] = self.game.core.shuffle()
+                    else:
+                        self.temp_data['Flipped'] = False
         
             self.set_game_title()
             self.frame_data['Redraw'] = True
