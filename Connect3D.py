@@ -1338,24 +1338,77 @@ class GameCore(object):
         self.set_game_time()
     
     def set_game_menu_holder(self):
+        
+        contents = self.screen_menu_background
+        contents_size = contents.get_size()[1]
+    
         menu_height = self.HEIGHT / 2
         
+        #Scroll bar
+        scroll_top = self.scroll_padding
+        scroll_bottom = menu_height - self.scroll_padding * 2
+        
+        #Adjust to current size
+        scroll_bottom = (scroll_bottom - scroll_top) * (menu_height / contents_size)
+        
+        #Set correct offset
+        if self.option_hover['Scroll'] is not None:
+            offset = self.option_hover['Scroll'][0] - self.option_hover['Scroll'][1]
+        elif self.option_set['Scroll'] is not None:
+            offset = self.option_set['Scroll']
+        else:
+            offset = 0
+            
+        #Correctly size the scroll speed and scroll bar
+        offset_adjusted = self.scroll_padding * 3 + scroll_bottom - scroll_top - menu_height
+        offset = max(offset_adjusted, min(0, offset))
+        scroll_top -= offset
+        offset *= (menu_height - contents_size) / offset_adjusted
+        
+        
+        scroll_dimensions = [self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom]
+            
+        try:
+            x, y = self.frame_data['MousePos']
+            
+        except AttributeError:
+            pass
+            
+        else:
+            x -= self.menu_location[0]
+            y -= self.menu_location[1]
+            x_selected = scroll_dimensions[0] < x < scroll_dimensions[0] + scroll_dimensions[2]
+            y_selected = scroll_dimensions[1] < y < scroll_dimensions[1] + scroll_dimensions[3]
+            
+            if self.frame_data['MouseClick'][0]:
+                if self.option_hover['Scroll'] is None:
+                    if x_selected and y_selected:
+                        self.option_hover['Scroll'] = [y, y]
+                    if self.option_set['Scroll'] is not None and self.option_hover['Scroll'] is not None:
+                        self.option_hover['Scroll'][0] += self.option_set['Scroll']
+                else:
+                    self.option_hover['Scroll'][1] = y
+                    
+            elif self.option_hover['Scroll'] is not None:
+                self.option_set['Scroll'] = self.option_hover['Scroll'][0] - self.option_hover['Scroll'][1]
+                self.option_hover['Scroll'] = None
+        
+        
         self.screen_menu_holder = pygame.Surface((self.menu_width + self.scroll_width // 2, menu_height), pygame.SRCALPHA, 32)
-        self.screen_menu_holder.blit(self.screen_menu_background, (0, 0))
+        self.screen_menu_holder.blit(contents, (0, offset))
         
         #Draw outline
         pygame.draw.rect(self.screen_menu_holder, BLACK, (0, 0, self.menu_width, menu_height), 1)
         
-        #Draw scroll box
-        scroll_top = self.scroll_padding
-        scroll_bottom =  menu_height - self.scroll_padding * 2
-        
-        scroll_dimensions = (self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom)
+        #Draw scroll bar
         pygame.draw.rect(self.screen_menu_holder, GREEN, scroll_dimensions, 0)
         pygame.draw.rect(self.screen_menu_holder, BLACK, scroll_dimensions, 1)
+        self.frame_data['Redraw'] = True
+        
+                
     
     def set_game_menu_background(self):
-        self.screen_menu_background = pygame.Surface((self.menu_width, self.HEIGHT))
+        self.screen_menu_background = pygame.Surface((self.menu_width, 960))
         self.screen_menu_background.fill(WHITE)
         height_current = self.text_padding
         blit_list = []
@@ -1532,7 +1585,8 @@ class GameCore(object):
                           'Flipped': False,
                           'Skipped': False,
                           'MoveTimeLeft': None}
-        self.option_set = {'Shuffle': None,
+        self.option_set = {'Scroll': None,
+                           'Shuffle': None,
                            'TimeEnabled': None,
                            'TimeChange': None}
         self.option_hover = dict(self.option_set)
@@ -1804,7 +1858,7 @@ class GameCore(object):
                 
         #Draw frame
         elif self.frame_data['Redraw']:
-            print self.frame_data['GameTime'].ticks
+            #print self.frame_data['GameTime'].ticks
             self.game_draw_background()
             self.screen.blit(self.background, (0, 0))
             pygame.display.flip()
@@ -1826,9 +1880,10 @@ class GameCore(object):
             self.frame_data['Redraw'] = True
             
         if self.frame_data['Redraw']:
-            print self.frame_data['GameTime'].ticks
+            #print self.frame_data['GameTime'].ticks
             self.set_game_menu_background()
             self.set_game_menu_holder()
+            self.screen.blit(self.background, (0, 0))
         
         menu_size = self.screen_menu_background.get_size()
         self.screen.blit(self.screen_menu_holder, self.menu_location)
