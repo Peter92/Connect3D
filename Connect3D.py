@@ -26,11 +26,7 @@ RED = (255, 0, 0)
 PURPLE = (255, 120, 235)
 
 SELECTION = {'Default': [WHITE, LIGHTGREY],
-             'Hover': [None, BLACK],
-             'Waiting': [None, BLACK],
-             'Selected': [GREEN, None]}
-SELECTION = {'Default': [WHITE, LIGHTGREY],
-             'Background': [GREEN, None],
+             'Background': [True, None],
              'Foreground': [None, BLACK]}
              
 class GameTime(object):
@@ -1031,7 +1027,8 @@ class GameCore(object):
         self.game = C3DGame
         self.move_timer = self.TIMER_DEFAULT
         
-        self.player_colours = [GREEN, LIGHTBLUE, YELLOW, RED, PURPLE]
+        self.colour_order = [GREEN, YELLOW, PURPLE, LIGHTBLUE, RED]
+        self.player_colours = list(self.colour_order)
         random.shuffle(self.player_colours)
     
     def resize_screen(self):
@@ -1081,31 +1078,28 @@ class GameCore(object):
                 
             if not edited:
                 break
+                
+                
+        height_multiply = min(1, 1.5 * self.WIDTH / self.HEIGHT)
+        #height_multiply = 1
         
                 
         #Set font sizes
-        self.text_padding = self.HEIGHT // 96
+        self.text_padding = max(1, self.HEIGHT // 96)
         self.width_padding = 5
-        self.font_lg = pygame.font.Font(self.font_file, self.HEIGHT // 28)
+        self.font_lg = pygame.font.Font(self.font_file, int(self.HEIGHT / 28 * height_multiply))
         self.font_lg_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
-        self.font_md = pygame.font.Font(self.font_file, self.HEIGHT // 40)
+        self.font_md = pygame.font.Font(self.font_file, int(self.HEIGHT / 40 * height_multiply))
         self.font_md_size = self.font_md.render('', 1, BLACK).get_rect()[3]
-        self.font_sm = pygame.font.Font(self.font_file, self.HEIGHT // 45)
+        self.font_sm = pygame.font.Font(self.font_file, int(self.HEIGHT / 45 * height_multiply))
         self.font_sm_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
         
-        #Static font sizes for the menu
-        self.font_lg_s = pygame.font.Font(self.font_file, 34)
-        self.font_lg_s_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
-        self.font_md_s = pygame.font.Font(self.font_file, 24)
-        self.font_md_s_size = self.font_md.render('', 1, BLACK).get_rect()[3]
-        self.font_sm_s = pygame.font.Font(self.font_file, 21)
-        self.font_sm_s_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
         
         self.score_width = None
-        self.menu_width = 520
-        self.menu_height_offset = 50
-        self.scroll_width = 20
-        self.scroll_padding = 20
+        self.menu_width = int((self.HEIGHT / 1.85) * height_multiply)
+        self.menu_height_offset = self.HEIGHT // 18 * height_multiply
+        self.scroll_width = self.HEIGHT // 48 * height_multiply
+        self.scroll_padding = self.HEIGHT // 48 * height_multiply
         
         #Update surfaces
         self.set_grid_overlay()
@@ -1126,7 +1120,10 @@ class GameCore(object):
             transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
             transparent.fill(list(WHITE) + [200])
             self.screen.blit(transparent, (0, 0))
+        try:
             self.frame_data['Redraw'] = True
+        except AttributeError:
+            pass
     
     def end(self):
         """Handle ending the game from anywhere."""
@@ -1282,6 +1279,14 @@ class GameCore(object):
             player1 = _player
             score1 = _score
         
+        
+        #Set menu colour based on the 2 players
+        for colour in self.colour_order:
+            if colour in (self.player_colours[player1 - 1], self.player_colours[player2 - 1]):
+                self.menu_colour = colour
+                break
+        
+
         point_display = '/'
         
         #Adjust number of points in a row to display
@@ -1341,15 +1346,17 @@ class GameCore(object):
         
         contents = self.screen_menu_background
         contents_size = contents.get_size()[1]
+        
+        menu_width = self.menu_width + self.scroll_width // 2 + 1
     
-        menu_height = self.HEIGHT / 2
+        max_height = self.HEIGHT - self.menu_location[1] * 4
+        max_height = ((menu_width * 1.4) + (self.HEIGHT / 1.28)) / 2
+        min_height = 120
+        menu_height = max(min_height, min(max_height, contents_size))
         
         #Scroll bar
         scroll_top = self.scroll_padding
-        scroll_bottom = menu_height - self.scroll_padding * 2
-        
-        #Adjust to current size
-        scroll_bottom = (scroll_bottom - scroll_top) * (menu_height / contents_size)
+        scroll_bottom = (menu_height - self.scroll_padding - scroll_top) * (menu_height / contents_size)
         
         #Set correct offset
         if self.option_hover['Scroll'] is not None:
@@ -1358,14 +1365,19 @@ class GameCore(object):
             offset = self.option_set['Scroll']
         else:
             offset = 0
-            
+        
         #Correctly size the scroll speed and scroll bar
         offset_adjusted = self.scroll_padding * 3 + scroll_bottom - scroll_top - menu_height
         offset = max(offset_adjusted, min(0, offset))
+        if self.option_set['Scroll'] is not None:
+            self.option_set['Scroll'] = max(offset_adjusted, min(0, self.option_set['Scroll']))
+            
         scroll_top -= offset
-        offset *= (menu_height - contents_size) / offset_adjusted
-        
-        
+        if offset_adjusted:
+            offset *= (menu_height - contents_size) / offset_adjusted
+                
+            
+            
         scroll_dimensions = [self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom]
             
         try:
@@ -1375,7 +1387,7 @@ class GameCore(object):
             pass
             
         else:
-            x -= self.menu_location[0]
+            x -= self.menu_location[0] + self.scroll_width // 2
             y -= self.menu_location[1]
             x_selected = scroll_dimensions[0] < x < scroll_dimensions[0] + scroll_dimensions[2]
             y_selected = scroll_dimensions[1] < y < scroll_dimensions[1] + scroll_dimensions[3]
@@ -1394,14 +1406,14 @@ class GameCore(object):
                 self.option_hover['Scroll'] = None
         
         
-        self.screen_menu_holder = pygame.Surface((self.menu_width + self.scroll_width // 2, menu_height), pygame.SRCALPHA, 32)
+        self.screen_menu_holder = pygame.Surface((self.menu_width + self.scroll_width // 2 + 1, menu_height), pygame.SRCALPHA, 32)
         self.screen_menu_holder.blit(contents, (0, offset))
         
         #Draw outline
         pygame.draw.rect(self.screen_menu_holder, BLACK, (0, 0, self.menu_width, menu_height), 1)
         
         #Draw scroll bar
-        pygame.draw.rect(self.screen_menu_holder, GREEN, scroll_dimensions, 0)
+        pygame.draw.rect(self.screen_menu_holder, self.menu_colour, scroll_dimensions, 0)
         pygame.draw.rect(self.screen_menu_holder, BLACK, scroll_dimensions, 1)
         self.frame_data['Redraw'] = True
         
@@ -1491,12 +1503,12 @@ class GameCore(object):
     
     def _game_menu_title(self, title, subtitle, height_current, blit_list):
         
-        font = self.font_lg_s.render(title, 1, BLACK)
+        font = self.font_lg.render(title, 1, BLACK)
         blit_list.append((font, (self.width_padding * 2, height_current)))
         height_current += font.get_rect()[3]
         
         if subtitle:
-            font = self.font_md_s.render(subtitle, 1, BLACK)
+            font = self.font_md.render(subtitle, 1, BLACK)
             blit_list.append((font, (self.width_padding * 2, height_current)))
             height_current += self.text_padding * 5
         
@@ -1505,12 +1517,12 @@ class GameCore(object):
     def _game_menu_option(self, message, options, selected, height_current, blit_list, rect_list, surface):
         padding = 2
     
-        font = self.font_md_s.render('{} '.format(message), 1, BLACK)
+        font = self.font_md.render('{} '.format(message), 1, BLACK)
         start_size = font.get_rect()[2:]
         start_size[0] += 5
         blit_list.append((font, (self.width_padding * 2, height_current)))
         
-        fonts = [self.font_md_s.render(option, 1, BLACK) for option in options]
+        fonts = [self.font_md.render(option, 1, BLACK) for option in options]
         sizes = [option.get_rect()[2:] for option in fonts]
         
         #Calculate square sizes
@@ -1537,9 +1549,13 @@ class GameCore(object):
                     if text_colour is not None:
                         colours[1] = text_colour
             rect_colour, text_colour = colours
+            if rect_colour == True:
+                rect_colour = self.menu_colour
+            if text_colour == True:
+                text_colour = self.menu_colour
             
             #Add to list
-            font = self.font_md_s.render(options[i], 1, text_colour)
+            font = self.font_md.render(options[i], 1, text_colour)
             blit_list.append((font, (width_offset, height_current)))
             rect_list.append([surface, rect_colour, square])
     
@@ -1885,10 +1901,12 @@ class GameCore(object):
             self.set_game_menu_holder()
             self.screen.blit(self.background, (0, 0))
         
-        menu_size = self.screen_menu_background.get_size()
-        self.screen.blit(self.screen_menu_holder, self.menu_location)
-        pygame.display.flip()
+            #Redraw menu
+            menu_size = self.screen_menu_background.get_size()
+            location = list(self.menu_location)
+            location[0] += self.scroll_width // 2
+            self.screen.blit(self.screen_menu_holder, location)
+            pygame.display.flip()
 
-c = Connect3DGame(players=(0, 5))#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
-
+c = Connect3DGame(players=(0, 0, 0, 0))
 c.play()
