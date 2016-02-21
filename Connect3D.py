@@ -78,8 +78,8 @@ class GameTime(object):
         wanted_fps = alternate_fps or self.desired_fps
         if wanted_fps:
             pygame.time.Clock().tick(wanted_fps)
-
-            
+         
+         
 class GameTimeLoop(object):
     """This gets called every loop but uses GameTime."""
     
@@ -185,7 +185,7 @@ class Connect3D(object):
         self.calculate_score()
 
     def __repr__(self):
-        output = base64.b64encode(zlib.compress('{}'.format(self.grid)))
+        output = base64.b64encode(zlib.compress(str(self.grid)))
         return "Connect3D({}).load('{}')".format(self.size, output)
 
     def load(self, data, update_score=True):
@@ -340,7 +340,7 @@ class Connect3DGame(object):
     DEFAULT_PLAYERS = 2
     DEFAULT_SHUFFLE_TURNS = 3
     
-    def __init__(self, shuffle_level=None, shuffle_turns=None, size=None):
+    def __init__(self, players, shuffle_level=None, shuffle_turns=None, size=None):
         self.shuffle_turns = self.DEFAULT_SHUFFLE_TURNS if shuffle_turns is None else max(0, shuffle_turns)
         self.core = Connect3D(size=size, shuffle_level=shuffle_level)
         self.ai = ArtificialIntelligence(self)
@@ -348,6 +348,12 @@ class Connect3DGame(object):
         self._ai_move = None
         self._ai_state = None
         self._ai_running = False
+        
+        self.players = bytearray(players)
+        self._player_count = len(self.players)
+        self._range_players = bytearray(i + 1 for i in range(self._player_count))
+        self._player = -1
+        self._player_types = bytearray(i - 1 for i in self.players)
         
     def next_player(self, player, num_players):
         player += 1
@@ -362,47 +368,48 @@ class Connect3DGame(object):
         return player
     
     def __repr__(self):
-        print self.core.grid
-        output = base64.b64encode(zlib.compress('{}'.format(self.core.grid)))
+        data = bytearray(list(self.players) + [self._player, 0]) + self.core.grid
+        output = base64.b64encode(zlib.compress(str(data)))
         return "Connect3DGame.load('{}')".format(output)
         
     @classmethod
     def load(cls, data):
         """Load a grid into the game."""
         
-        grid = bytearray(zlib.decompress(base64.b64decode(data)))
+        decoded_data = bytearray(zlib.decompress(base64.b64decode(data)))
+        players, grid = decoded_data.split(chr(0), 1)
+        player = players.pop(-1)
+        
         cube_root = pow(len(grid), 1/3)
         
         if round(cube_root) != round(cube_root, 4):
             raise ValueError('incorrect input size')
             
         #Create new class
-        new_instance = cls(size=int(round(cube_root)))
+        new_instance = cls(players=players, size=int(round(cube_root)))
         new_instance.core.set_grid(grid)
+        new_instance._player = player
         return new_instance
     
-    def check_game_end(self, _range_players, end_early=True):
+    def check_game_end(self, end_early=True):
     
             #Check if any points are left to gain
             points_left = True
             if end_early:
-                potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in _range_players}
-                if all(self.core.score == potential_points[player] for player in _range_players):
+                potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in self._range_players}
+                if all(self.core.score == potential_points[player] for player in self._range_players):
                     points_left = False
                     
             #Check if no spaces are left
             if 0 not in self.core.grid or not points_left:
                 return get_max_keys(self.core.score)
-                
-    
-    def play(self, players=(0, 3), basic=False):
+           
+    def play(self, basic=False):
         
-        num_players = len(players)
-        _range_players = [i + 1 for i in range(num_players)]
-        current_player = random.choice(_range_players)
-        
+        if self._player == -1:
+            self._player = random.choice(self._range_players)
         if pygame and not basic:
-            return GameCore(self).play(players=players)
+            return GameCore(self).play()
         
         max_go = self.core._size_cubed - 1
         count_shuffle = 0
@@ -419,7 +426,7 @@ class Connect3DGame(object):
             #    print self._ai_text
             self._ai_text = []
             
-            winning_player = self.check_game_end(_range_players)
+            winning_player = self.check_game_end(self._range_players)
             if winning_player is not None:
                 if len(winning_player) == 1:
                     print 'Player {} won!'.format(winning_player[0])
@@ -431,20 +438,17 @@ class Connect3DGame(object):
                 play_again = raw_input().lower()
                 if any(i in play_again for i in ('y', 'k')):
                     self.core = Connect3D(size=self.core.size, shuffle_level=self.core.shuffle_level)
-                    return self.play(players=players, basic=basic)
+                    return self.play(basic=basic)
                 else:
                     return
             
             
-            print "Player {}'s turn".format(current_player)
-            player_type = players[current_player - 1] - 1
+            print "Player {}'s turn".format(self._player)
+            player_type = self._player_types[self._player - 1]
             
-            if player_type != -1:
-                new_go = self.ai.calculate_move(current_player, difficulty=player_type, _range=_range_players)
-                self.core.grid[new_go] = current_player
-                
-            else:
-                #Get and validate input
+            #Human move
+            if player_type < 0:
+            
                 while True:
                     new_go = raw_input()
                     if not len(new_go):
@@ -455,7 +459,7 @@ class Connect3DGame(object):
                         print 'input must be an integer between 0 and {}'.format(max_go)
                         continue
                     if 0 <= new_go <= max_go and not self.core.grid[new_go]:
-                        self.core.grid[new_go] = current_player
+                        self.core.grid[new_go] = self._player
                         break
                     if new_go > max_go:
                         print 'input must be between 0 and {}'.format(max_go)
@@ -464,7 +468,12 @@ class Connect3DGame(object):
                     else:
                         print 'unknown error with input'
             
-            current_player = self.next_player(current_player, num_players)
+            #Computer move
+            else:
+                new_go = self.ai.calculate_move(self._player, difficulty=player_type, _range=self._range_players)
+                self.core.grid[new_go] = self._player
+            
+            self._player = self.next_player(self._player, self._player_count)
             
             #Flip the grid
             count_shuffle += 1
@@ -1086,7 +1095,6 @@ class GameCore(object):
         self.set_grid_blocks()
         self.set_game_title()
         
-
     def end(self):
         """Handle ending the game from anywhere."""
         self.state = None
@@ -1112,11 +1120,10 @@ class GameCore(object):
         except TypeError:
             pass
         
-        core = self.game.core
-        for i in core._range_lg:
-            if core.grid[i] or i in extra:
-                chunk = i // core._size_squared
-                base_coordinate = self.draw.relative_coordinates[i % core._size_squared]
+        for i in self.game.core._range_lg:
+            if self.game.core.grid[i] or i in extra:
+                chunk = i // self.game.core._size_squared
+                base_coordinate = self.draw.relative_coordinates[i % self.game.core._size_squared]
                 coordinate = (base_coordinate[0] + self.draw.offset[0], 
                     self.draw.offset[1] + chunk * self.draw.chunk_height + self.draw.size_y_sm * 2 - base_coordinate[1])
                 
@@ -1132,14 +1139,14 @@ class GameCore(object):
                 #Player has mouse over square
                 block_colour = None
                 
-                if not core.grid[i]:
+                if not self.game.core.grid[i]:
                     
                     #Hovering over block
                     if i == extra[0]:
                         block_colour = mix_colour(WHITE, WHITE, self.player_colours[hover[1] - 1])
                         
                     if i == extra[1]:
-                        player_colour = self.player_colours[self._player - 1]
+                        player_colour = self.player_colours[self.game._player - 1]
                         
                         #Holding down over block
                         if pending[2]:
@@ -1155,7 +1162,7 @@ class GameCore(object):
                 
                 #Square is taken by a player
                 else:
-                    block_colour = self.player_colours[core.grid[i] - 1]
+                    block_colour = self.player_colours[self.game.core.grid[i] - 1]
                 
                 if block_colour is not None:
                     pygame.draw.polygon(self.screen_blocks,
@@ -1193,19 +1200,19 @@ class GameCore(object):
                 message = "The game was a draw!"
         
         elif self.game._ai_running:
-            message = "Player {} is thinking...".format(self._player)
+            message = "Player {} is thinking...".format(self.game._player)
         
         #Don't instantly switch to player is thinking as it could be a quick click
         elif (self.temp_data['PendingMove'] is None
             or (not self.temp_data['PendingMove'][3] 
                 and self.temp_data['PendingMove'][1] > self.frame_data['GameTime'].total_ticks)):
-            message = "Player {}'s turn!".format(self._player)
+            message = "Player {}'s turn!".format(self.game._player)
             
         else:
             if self.temp_data['PendingMove'][3]:
-                message = "Player {} is moving...".format(self._player)
+                message = "Player {} is moving...".format(self.game._player)
             else:
-                message = "Player {} is thinking...".format(self._player)
+                message = "Player {} is thinking...".format(self.game._player)
         
             
         font = self.font_lg.render(message, 1, BLACK)
@@ -1287,7 +1294,7 @@ class GameCore(object):
                     message = 'Forced move!'
                 else:
                     message = 'Switched players!'
-                last_player = self.game.previous_player(self._player, self._player_count)
+                last_player = self.game.previous_player(self.game._player, self._player_count)
                 message += ' (Player {} took too long)'.format(last_player)
             elif self.temp_data['Flipped']:
                 message = 'Grid was flipped!'
@@ -1295,7 +1302,6 @@ class GameCore(object):
             size = font.get_rect()[2:]
             self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
         
-    
     def run_ai(self, run=True):
         """Runs the AI in a thread.
         Until _ai_move or _ai_state is not None, it is not completed.
@@ -1303,12 +1309,11 @@ class GameCore(object):
         self.game._ai_move = self.game._ai_state = None
         if run:
             ThreadHelper(self.game.ai.calculate_move, 
-                         self._player, 
-                         difficulty=self._player_types[self._player - 1], 
-                         _range=self._range_players).start()
-
-            
-    def play(self, players):
+                         self.game._player, 
+                         difficulty=self.game._player_types[self.game._player - 1], 
+                         _range=self.game._range_players).start()
+  
+    def play(self):
     
         #Initialise screen
         pygame.init()
@@ -1322,10 +1327,11 @@ class GameCore(object):
                           'Skipped': False,
                           'MoveTimeLeft': None}
         
-        self._player_count = len(players)
-        self._range_players = [i + 1 for i in range(self._player_count)]
-        self._player = random.choice(self._range_players)
-        self._player_types = [i - 1 for i in players]
+        #self._player_count = len(self.game.players)
+        #self._range_players = [i + 1 for i in range(self._player_count)]
+        #self._player = random.choice(self._range_players)
+        #self._player_types = [i - 1 for i in self.game.players]
+        
         #self.game.next_player(self._player, num_players)
         
         #Import the font
@@ -1412,7 +1418,7 @@ class GameCore(object):
                 force_end = True + (self.temp_data['PendingMove'] is not None)
                 self.set_game_title()
         
-        player_type = self._player_types[self._player - 1]
+        player_type = self.game._player_types[self.game._player - 1]
         
         #Moved mouse
         mouse_block_id = None
@@ -1427,10 +1433,10 @@ class GameCore(object):
             
             #Enemy has finished their go, gets rid of the 'frozen game' effect
             if self.temp_data['PendingMove'] is not None and self.temp_data['PendingMove'][3]:
-                next_player = self.game.next_player(self._player, self._player_count)
+                next_player = self.game.next_player(self.game._player, self.game._player_count)
                 
                 #Re-activate hover if next player is human
-                if self._player_types[next_player - 1] < 0:
+                if self.game._player_types[next_player - 1] < 0:
                     self.temp_data['Hover'] = [mouse_block_id, next_player]
                     
                 else:
@@ -1439,7 +1445,7 @@ class GameCore(object):
             #Players go
             elif player_type < 0:
                 if self.temp_data['PendingMove'] is None:
-                    self.temp_data['Hover'] = [mouse_block_id, self._player]
+                    self.temp_data['Hover'] = [mouse_block_id, self.game._player]
                 else:
                     self.temp_data['Hover'] = None
                     
@@ -1537,8 +1543,8 @@ class GameCore(object):
                     self.temp_data['MoveTimeLeft'] = None
                     self.temp_data['PendingMove'] = None
                     self.temp_data['Skipped'] = False
-                    self.game.core.grid[block_id] = self._player
-                    self._player = self.game.next_player(self._player, self._player_count)
+                    self.game.core.grid[block_id] = self.game._player
+                    self.game._player = self.game.next_player(self.game._player, self.game._player_count)
                     
                     self.set_grid_blocks()
                     self.frame_data['Redraw'] = True
@@ -1554,14 +1560,14 @@ class GameCore(object):
         
             self.set_game_title()
             self.frame_data['Redraw'] = True
-            self.temp_data['Winner'] = self.game.check_game_end(self._range_players)
+            self.temp_data['Winner'] = self.game.check_game_end()
         
         #Copy game state to clipboard
-        pygame.scrap.put(pygame.SCRAP_TEXT, base64.b64encode(zlib.compress('{}'.format(self.game.core.grid))))
+        pygame.scrap.put(pygame.SCRAP_TEXT, self.game.__repr__())
         
         if force_end:
             if force_end == 1:
-                self._player = self.game.next_player(self._player, self._player_count)
+                self.game._player = self.game.next_player(self.game._player, self.game._player_count)
             self.temp_data['MoveTimeLeft'] = None
             self.temp_data['Skipped'] = force_end
             self.set_game_title()
@@ -1581,7 +1587,7 @@ class GameCore(object):
             pygame.display.flip()
             
     
-    
-c = Connect3DGame(size=4)#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
-c.play((5, 5))
+
+c = Connect3DGame(players=(5, 5))#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
+c.play()
 #GameCore(c).play()
