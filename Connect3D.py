@@ -29,7 +29,9 @@ SELECTION = {'Default': [WHITE, LIGHTGREY],
              'Hover': [None, BLACK],
              'Waiting': [None, BLACK],
              'Selected': [GREEN, None]}
-             
+SELECTION = {'Default': [WHITE, LIGHTGREY],
+             'Background': [GREEN, None],
+             'Foreground': [None, BLACK]}
              
 class GameTime(object):
     def __init__(self, desired_fps=120, desired_ticks=60):
@@ -350,10 +352,12 @@ class Connect3DGame(object):
         self._ai_running = False
         
         self.players = bytearray(players)
+        if not all(0 <= i <= 5 for i in self.players):
+            raise ValueError('invalid player level')
         self._player_count = len(self.players)
-        self._range_players = bytearray(i + 1 for i in range(self._player_count))
+        self._range_players = [i + 1 for i in range(self._player_count)]
         self._player = -1
-        self._player_types = bytearray(i - 1 for i in self.players)
+        self._player_types = [i - 1 for i in self.players]
         
     def next_player(self, player, num_players):
         player += 1
@@ -368,7 +372,7 @@ class Connect3DGame(object):
         return player
     
     def __repr__(self):
-        data = bytearray(list(self.players) + [self._player, 0]) + self.core.grid
+        data = bytearray(list(self.players) + [self._player, 6]) + self.core.grid
         output = base64.b64encode(zlib.compress(str(data)))
         return "Connect3DGame.load('{}')".format(output)
         
@@ -377,7 +381,7 @@ class Connect3DGame(object):
         """Load a grid into the game."""
         
         decoded_data = bytearray(zlib.decompress(base64.b64decode(data)))
-        players, grid = decoded_data.split(chr(0), 1)
+        players, grid = decoded_data.split(chr(6), 1)
         player = players.pop(-1)
         
         cube_root = pow(len(grid), 1/3)
@@ -1018,20 +1022,21 @@ class GameCore(object):
     FPS_MAIN = 30
     FPS_SMOOTH = 120
     TICKS = 120
-    WAIT = 60
     WIDTH = 640
     HEIGHT = 960
+    WAIT = 60
+    TIMER_DEFAULT = 200
     
     def __init__(self, C3DGame):
         self.game = C3DGame
-        self.move_timer = 200
+        self.move_timer = self.TIMER_DEFAULT
         
         self.player_colours = [GREEN, LIGHTBLUE, YELLOW, RED, PURPLE]
         random.shuffle(self.player_colours)
     
     def resize_screen(self):
         """Recalculate anything to do with a new width and height."""
-        self.mid_point = [self.WIDTH / 2, self.HEIGHT / 2]
+        self.mid_point = [self.WIDTH // 2, self.HEIGHT // 2]
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.RESIZABLE)
         
         #Set length and angle to fit on the screen
@@ -1040,7 +1045,7 @@ class GameCore(object):
         padding = 4
         angle_limits = (26, 40)
         
-        offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT / 25)
+        offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT // 25)
         freeze_edit = False
         while True:
             edited = False
@@ -1079,7 +1084,7 @@ class GameCore(object):
         
                 
         #Set font sizes
-        self.text_padding = self.HEIGHT / 96
+        self.text_padding = self.HEIGHT // 96
         self.width_padding = 5
         self.font_lg = pygame.font.Font(self.font_file, self.HEIGHT // 28)
         self.font_lg_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
@@ -1088,13 +1093,41 @@ class GameCore(object):
         self.font_sm = pygame.font.Font(self.font_file, self.HEIGHT // 45)
         self.font_sm_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
         
+        #Static font sizes for the menu
+        self.font_lg_s = pygame.font.Font(self.font_file, 34)
+        self.font_lg_s_size = self.font_lg.render('', 1, BLACK).get_rect()[3]
+        self.font_md_s = pygame.font.Font(self.font_file, 24)
+        self.font_md_s_size = self.font_md.render('', 1, BLACK).get_rect()[3]
+        self.font_sm_s = pygame.font.Font(self.font_file, 21)
+        self.font_sm_s_size = self.font_sm.render('', 1, BLACK).get_rect()[3]
+        
         self.score_width = None
+        self.menu_width = 520
+        self.menu_height_offset = 50
+        self.scroll_width = 20
+        self.scroll_padding = 20
         
         #Update surfaces
         self.set_grid_overlay()
         self.set_grid_blocks()
         self.set_game_title()
+        self.set_game_menu_background()
+        self.game_draw_background()
+        self.screen.blit(self.background, (0, 0))
+        self.change_state()
         
+        menu_size = self.screen_menu_background.get_size()
+        self.menu_location = [0, self.menu_height_offset]
+        self.menu_location[0] = self.mid_point[0] - menu_size[0] // 2 - self.scroll_width // 2
+    
+    def change_state(self):
+        """Calculations to be done when the state of the game is changed."""
+        if self.state == 'Menu':
+            transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+            transparent.fill(list(WHITE) + [200])
+            self.screen.blit(transparent, (0, 0))
+            self.frame_data['Redraw'] = True
+    
     def end(self):
         """Handle ending the game from anywhere."""
         self.state = None
@@ -1302,6 +1335,179 @@ class GameCore(object):
             size = font.get_rect()[2:]
             self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
         
+        self.set_game_time()
+    
+    def set_game_menu_holder(self):
+        menu_height = self.HEIGHT / 2
+        
+        self.screen_menu_holder = pygame.Surface((self.menu_width + self.scroll_width // 2, menu_height), pygame.SRCALPHA, 32)
+        self.screen_menu_holder.blit(self.screen_menu_background, (0, 0))
+        
+        #Draw outline
+        pygame.draw.rect(self.screen_menu_holder, BLACK, (0, 0, self.menu_width, menu_height), 1)
+        
+        #Draw scroll box
+        scroll_top = self.scroll_padding
+        scroll_bottom =  menu_height - self.scroll_padding * 2
+        
+        scroll_dimensions = (self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom)
+        pygame.draw.rect(self.screen_menu_holder, GREEN, scroll_dimensions, 0)
+        pygame.draw.rect(self.screen_menu_holder, BLACK, scroll_dimensions, 1)
+    
+    def set_game_menu_background(self):
+        self.screen_menu_background = pygame.Surface((self.menu_width, self.HEIGHT))
+        self.screen_menu_background.fill(WHITE)
+        height_current = self.text_padding
+        blit_list = []
+        rect_list = []
+        
+        title_message = 'Connect 3D'
+        subtitle_message = 'By Peter Hunt'
+        
+        height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
+        
+        #Shuffle options
+        options = ('Mirror/Rotate', 'Mirror', 'No')
+        option_len = len(options)
+        selected = []
+        
+        for i in range(option_len):
+            background = i == self.game.core.shuffle_level
+            foreground = (i in (self.option_hover['Shuffle'], self.option_set['Shuffle'])
+                          or background and self.option_set['Shuffle'] is None)
+            selected.append((background, foreground))
+        result = self._game_menu_option('Shuffle grid every 3 goes?',
+                                        options, selected, height_current,
+                                        blit_list, rect_list,
+                                        self.screen_menu_background)
+        self.option_hover['Shuffle'], height_current = result
+        if self.option_hover['Shuffle'] is not None and self.frame_data['MouseClick'][0]:
+            self.option_set['Shuffle'] = self.option_hover['Shuffle']
+        height_current += self.text_padding
+                    
+        #Ask about time limit
+        options = ('Yes', 'No')
+        option_len = len(options)
+        selected = []
+        for i in range(option_len):
+            background = i == (not self.move_timer)
+            foreground = (i in (self.option_hover['TimeEnabled'], self.option_set['TimeEnabled'])
+                          or background and self.option_set['TimeEnabled'] is None)
+            selected.append([background, foreground])
+        result = self._game_menu_option('Use a turn time limit?',
+                                        options, selected, height_current,
+                                        blit_list, rect_list,
+                                        self.screen_menu_background)
+        self.option_hover['TimeEnabled'], height_current = result
+        if self.option_hover['TimeEnabled'] is not None and self.frame_data['MouseClick'][0]:
+            self.option_set['TimeEnabled'] = self.option_hover['TimeEnabled']
+        height_current += self.text_padding
+            
+        #Ask about time options
+        if not self.option_set['TimeEnabled']:
+            options = ('Decrease', 'Increase')
+            option_len = len(options)
+            selected = []
+            for i in range(option_len):
+                background = False
+                foreground = i == self.option_hover['TimeChange']
+                selected.append([background, foreground])
+            timer = self.TIMER_DEFAULT if not self.move_timer else self.move_timer
+            result = self._game_menu_option('Limited to {} seconds'.format(timer),
+                                            options, selected, height_current,
+                                            blit_list, rect_list,
+                                            self.screen_menu_background)
+            self.option_hover['TimeChange'], height_current = result
+            if self.option_hover['TimeChange'] is not None and self.frame_data['MouseClick'][0]:
+                if self.option_set['TimeChange'] is None:
+                    self.move_timer += 10 * (1 if self.option_hover['TimeChange'] else -1)
+                    self.move_timer = max(10, self.move_timer)
+                    self.option_set['TimeChange'] = True
+                    if self.temp_data['MoveTimeLeft']:
+                        self.temp_data['MoveTimeLeft'] = self.TICKS * self.move_timer
+            if self.option_set['TimeChange'] and not self.frame_data['MouseClick'][0]:
+                self.option_set['TimeChange'] = None
+            height_current += self.text_padding
+        
+        
+        for rect in rect_list:
+            pygame.draw.rect(*rect)
+                    
+        for font in blit_list:
+            self.screen_menu_background.blit(*font)
+    
+    def _game_menu_title(self, title, subtitle, height_current, blit_list):
+        
+        font = self.font_lg_s.render(title, 1, BLACK)
+        blit_list.append((font, (self.width_padding * 2, height_current)))
+        height_current += font.get_rect()[3]
+        
+        if subtitle:
+            font = self.font_md_s.render(subtitle, 1, BLACK)
+            blit_list.append((font, (self.width_padding * 2, height_current)))
+            height_current += self.text_padding * 5
+        
+        return height_current
+    
+    def _game_menu_option(self, message, options, selected, height_current, blit_list, rect_list, surface):
+        padding = 2
+    
+        font = self.font_md_s.render('{} '.format(message), 1, BLACK)
+        start_size = font.get_rect()[2:]
+        start_size[0] += 5
+        blit_list.append((font, (self.width_padding * 2, height_current)))
+        
+        fonts = [self.font_md_s.render(option, 1, BLACK) for option in options]
+        sizes = [option.get_rect()[2:] for option in fonts]
+        
+        #Calculate square sizes
+        square_list = []
+        for i, size in enumerate(sizes):
+            width_offset = (sum(j[0] + 2 for j in sizes[:i])
+                            + self.width_padding * (i + 1) #gap between the start
+                            + start_size[0])
+            square = (width_offset - padding,
+                     height_current - padding,
+                     size[0] + padding * 2,
+                     size[1] + padding)
+            square_list.append(square)
+    
+            #Set colours
+            order = ('Background', 'Foreground')
+            
+            colours = list(SELECTION['Default'])
+            for j, selection in enumerate(selected[i]):
+                if selection:
+                    rect_colour, text_colour = list(SELECTION[order[j]])
+                    if rect_colour is not None:
+                        colours[0] = rect_colour
+                    if text_colour is not None:
+                        colours[1] = text_colour
+            rect_colour, text_colour = colours
+            
+            #Add to list
+            font = self.font_md_s.render(options[i], 1, text_colour)
+            blit_list.append((font, (width_offset, height_current)))
+            rect_list.append([surface, rect_colour, square])
+    
+        selected_block = None
+        try:
+            x, y = self.frame_data['MousePos']
+        except AttributeError:
+            pass
+        else:
+            x -= self.menu_location[0]
+            y -= self.menu_location[1]
+            for i, square in enumerate(square_list):
+                x_selected = square[0] < x < square[0] + square[2]
+                y_selected = square[1] < y < square[1] + square[3]
+                if x_selected and y_selected:
+                    selected_block = i
+        
+        height_current += start_size[1]
+        return (selected_block, height_current)
+        
+    
     def run_ai(self, run=True):
         """Runs the AI in a thread.
         Until _ai_move or _ai_state is not None, it is not completed.
@@ -1326,6 +1532,10 @@ class GameCore(object):
                           'Flipped': False,
                           'Skipped': False,
                           'MoveTimeLeft': None}
+        self.option_set = {'Shuffle': None,
+                           'TimeEnabled': None,
+                           'TimeChange': None}
+        self.option_hover = dict(self.option_set)
         
         #self._player_count = len(self.game.players)
         #self._range_players = [i + 1 for i in range(self._player_count)]
@@ -1348,9 +1558,9 @@ class GameCore(object):
         height_ratio = self.WIDTH / self.HEIGHT
         self.HEIGHT = height_multiplier * 16
         self.WIDTH = int(self.HEIGHT * height_ratio)
+        self.state = 'Main'
         
         self.resize_screen()
-        self.state = 'Main'
         
         pygame.scrap.init()
         
@@ -1366,13 +1576,12 @@ class GameCore(object):
                                    'MousePos': pygame.mouse.get_pos(),
                                    'MouseClick': list(pygame.mouse.get_pressed()),
                                    'MouseUse': any(pygame.mouse.get_pressed())}
-                if self.frame_data['Keys'][pygame.K_ESCAPE]:
-                    return self.end()
                     
                 #Handle quitting and resizing window
                 if self.state is None:
                     pygame.quit()
                     return
+                
                 for event in self.frame_data['Events']:
                     if event.type == pygame.QUIT:
                         self.state = None
@@ -1382,18 +1591,34 @@ class GameCore(object):
                         self.resize_screen()
                         self.frame_data['Redraw'] = True
                         
-                    if event.type == pygame.MOUSEBUTTONDOWN and event.button <= 3:
+                    elif event.type == pygame.MOUSEBUTTONDOWN:
                         self.frame_data['MouseUse'] = True
-                        self.frame_data['MouseClick'][event.button - 1] = 1
+                        if event.button <= 3:
+                            self.frame_data['MouseClick'][event.button - 1] = 1
+                        
+                    elif event.type == pygame.MOUSEBUTTONUP:
+                        self.frame_data['MouseUse'] = True
                     
-                    if event.type == pygame.MOUSEMOTION:
+                    elif event.type == pygame.MOUSEMOTION:
                         self.frame_data['MouseUse'] = True
+                        
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_ESCAPE:
+                            if self.state == 'Main':
+                                self.state = 'Menu'
+                                self.frame_data['GameTime'].set_fps(self.FPS_MAIN)
+                            elif self.state == 'Menu':
+                                self.state = 'Main'
+                                self.frame_data['GameTime'].set_fps(self.FPS_IDLE)
+                            self.change_state()
+                    
                     
                 #---MAIN LOOP START---#
-                
-                
                 if self.state == 'Main':
                     self.game_main()
+                
+                elif self.state == 'Menu':
+                    self.game_menu()
                 
                 '''
                 if self.game._ai_move is not None:
@@ -1408,12 +1633,15 @@ class GameCore(object):
 
     def game_main(self):
     
-    
         #Count ticks down
         force_end = False
         if self.temp_data['MoveTimeLeft'] is not None:
+            old_time_left = self.temp_data['MoveTimeLeft']
             self.temp_data['MoveTimeLeft'] -= self.frame_data['GameTime'].ticks
-            self.set_game_time()
+            if old_time_left // self.TICKS != self.temp_data['MoveTimeLeft'] // self.TICKS:
+                self.frame_data['Redraw'] = True
+                self.set_game_time()
+            
             if self.temp_data['MoveTimeLeft'] < 0:
                 force_end = True + (self.temp_data['PendingMove'] is not None)
                 self.set_game_title()
@@ -1486,6 +1714,8 @@ class GameCore(object):
                     elif mouse_block_id != self.temp_data['PendingMove'][0]:
                         self.temp_data['PendingMove'][2] = False
                 
+                    self.set_grid_blocks()
+                    self.frame_data['Redraw'] = True
                 
                 #Mouse button released
                 elif self.temp_data['PendingMove'] is not None and not self.temp_data['PendingMove'][3]:
@@ -1497,9 +1727,9 @@ class GameCore(object):
                     #If mouse was dragged off
                     else:
                         self.temp_data['PendingMove'] = None
-                
-                self.set_grid_blocks()
-                self.frame_data['Redraw'] = True
+                    
+                    self.set_grid_blocks()
+                    self.frame_data['Redraw'] = True
                 
             
             #Computer player
@@ -1545,10 +1775,6 @@ class GameCore(object):
                     self.temp_data['Skipped'] = False
                     self.game.core.grid[block_id] = self.game._player
                     self.game._player = self.game.next_player(self.game._player, self.game._player_count)
-                    
-                    self.set_grid_blocks()
-                    self.frame_data['Redraw'] = True
-                    self.game.core.calculate_score()
                 
                     #Shuffle grid
                     self.temp_data['ShuffleCount'] += 1
@@ -1557,6 +1783,10 @@ class GameCore(object):
                         self.temp_data['Flipped'] = self.game.core.shuffle()
                     else:
                         self.temp_data['Flipped'] = False
+                    
+                    self.set_grid_blocks()
+                    self.frame_data['Redraw'] = True
+                    self.game.core.calculate_score()
         
             self.set_game_title()
             self.frame_data['Redraw'] = True
@@ -1574,20 +1804,36 @@ class GameCore(object):
                 
         #Draw frame
         elif self.frame_data['Redraw']:
-            self.screen.fill(BACKGROUND)
-            
-            grid_dimensions = self.screen_grid.get_size()
-            grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_dimensions)]
-            
-            self.screen.blit(self.screen_blocks, grid_location)
-            self.screen.blit(self.screen_grid, grid_location)
-            self.screen.blit(self.screen_title, grid_location)
-            if self.temp_data['MoveTimeLeft'] is not None:
-                self.screen.blit(self.screen_time, grid_location)
+            print self.frame_data['GameTime'].ticks
+            self.game_draw_background()
+            self.screen.blit(self.background, (0, 0))
             pygame.display.flip()
-            
     
+    def game_draw_background(self):
+        grid_size = self.screen_grid.get_size()
+        grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_size)]
+        self.background = pygame.Surface((self.WIDTH, self.HEIGHT))
+        self.background.fill(BACKGROUND)
+        self.background.blit(self.screen_blocks, grid_location)
+        self.background.blit(self.screen_grid, grid_location)
+        self.background.blit(self.screen_title, grid_location)
+        if self.temp_data['MoveTimeLeft'] is not None:
+            self.background.blit(self.screen_time, grid_location)
+    
+    def game_menu(self):
+        
+        if self.frame_data['MouseUse']:
+            self.frame_data['Redraw'] = True
+            
+        if self.frame_data['Redraw']:
+            print self.frame_data['GameTime'].ticks
+            self.set_game_menu_background()
+            self.set_game_menu_holder()
+        
+        menu_size = self.screen_menu_background.get_size()
+        self.screen.blit(self.screen_menu_holder, self.menu_location)
+        pygame.display.flip()
 
-c = Connect3DGame(players=(5, 5))#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
+c = Connect3DGame(players=(0, 5))#.load('eJwtioENADAIwkr/P3pghiFUJaCpdNBx+yGX/Gcyyxq9sYI+CqIAUQ==')
+
 c.play()
-#GameCore(c).play()
