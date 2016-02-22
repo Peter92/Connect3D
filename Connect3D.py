@@ -952,6 +952,8 @@ class DrawData(object):
         
         self.length_small = self.length / self.core.size
         
+        
+        #Square
         self.relative_coordinates = []
         position = (0, self.centre)
         for j in self.core._range_sm:
@@ -962,27 +964,30 @@ class DrawData(object):
                             position[1] - self.y_offset)
             position = (checkpoint[0] - self.x_offset,
                         checkpoint[1] - self.y_offset)
-
-
-
+                        
+        
         #Absolute coordinates for pygame
-        chunk_coordinates = [(self.offset[0], self.offset[1] - i * self.chunk_height) for i in self.core._range_sm]
+        #chunk_coordinates = [(self.offset[0], self.offset[1] - i * self.chunk_height) for i in self.core._range_sm]
         
-        self.line_coordinates = [((self.offset[0] + self.size_x, self.offset[1] + self.centre - self.size_y),
-                                  (self.offset[0] + self.size_x, self.offset[1] + self.size_y - self.centre)),
-                                 ((self.offset[0] - self.size_x, self.offset[1] + self.centre - self.size_y),
-                                  (self.offset[0] - self.size_x, self.offset[1] + self.size_y - self.centre)),
-                                 ((self.offset[0], self.offset[1] + self.size_y * 2 - self.centre),
-                                  (self.offset[0], self.offset[1] + self.centre))]
-        
+        bottom_height = self.offset[1] + self.centre - self.size_y
+        top_height = bottom_height - self.chunk_height * 3
+        self.line_coordinates = [((self.offset[0] + self.size_x, bottom_height),
+                                  (self.offset[0] + self.size_x, top_height)),
+                                 ((self.offset[0] - self.size_x, bottom_height),
+                                  (self.offset[0] - self.size_x, top_height)),
+                                 ((self.offset[0], top_height + self.size_y),
+                                  (self.offset[0], bottom_height + self.size_y))]
+                                  
+        bottom_height = self.offset[1] + self.centre - self.size_y
+        top_height = self.offset[1] + self.centre - self.size_y * 2
         for i in self.core._range_sm:
 
             chunk_height = -i * self.chunk_height
-
-            self.line_coordinates += [((self.offset[0] + self.size_x, self.offset[1] + self.centre + chunk_height - self.size_y),
-                                       (self.offset[0], self.offset[1] + self.centre + chunk_height - self.size_y * 2)),
-                                      ((self.offset[0] - self.size_x, self.offset[1] + self.centre + chunk_height - self.size_y),
-                                       (self.offset[0], self.offset[1] + self.centre + chunk_height - self.size_y * 2))]
+            
+            self.line_coordinates += [((self.offset[0] + self.size_x, bottom_height + chunk_height),
+                                       (self.offset[0], top_height + chunk_height)),
+                                      ((self.offset[0] - self.size_x, bottom_height + chunk_height),
+                                       (self.offset[0], top_height + chunk_height))]
 
             for coordinate in self.relative_coordinates:
                 
@@ -991,6 +996,7 @@ class DrawData(object):
                                            (start[0] + self.size_x_sm, start[1] - self.size_y_sm)),
                                           (start,
                                            (start[0] - self.size_x_sm, start[1] - self.size_y_sm))]
+        
         
     def game_to_block_index(self, gx, gy):
         """Return index of block at the game coordinates gx, gy, or None if
@@ -1017,10 +1023,11 @@ class GameCore(object):
     FPS_IDLE = 22
     FPS_MAIN = 30
     FPS_SMOOTH = 120
+    
     TICKS = 120
     WIDTH = 640
     HEIGHT = 960
-    WAIT = 60
+    MOVE_WAIT = 60
     TIMER_DEFAULT = 200
     
     def __init__(self, C3DGame):
@@ -1038,52 +1045,56 @@ class GameCore(object):
         
         #Set length and angle to fit on the screen
         length = 200
-        angle = 26
-        padding = 4
-        angle_limits = (26, 40)
+        angle = 24
+        angle_limits = (angle, 40)
         
         offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT // 25)
         freeze_edit = False
+        freeze_angle = False
+        
+        length_increment = 4
         while True:
             edited = False
+            padding = int(pow(90 - angle, 0.75) - 15)
+            
+            #length = 2000
             self.draw = DrawData(self.game.core, length, angle, padding, offset)
+            
             height = self.draw.chunk_height * self.game.core.size
             width = self.draw.size_x * 2
             
-            too_small = height < self.HEIGHT * 0.87
+            too_small = height < self.HEIGHT * 0.85
             too_tall = height > self.HEIGHT * 0.88
             too_thin = width < self.WIDTH * 0.85
             too_wide = width > self.WIDTH * 0.9
-            
-            if too_wide:
+                    
+            if too_wide or too_small and not too_thin:
                 if angle < angle_limits[1]:
                     angle += 1
+                    freeze_angle = True
                 else:
-                    length -= 1
+                    length -= length_increment
                     freeze_edit = True
                 edited = True
-                    
+            
             if too_thin:
-                if angle > angle_limits[0]:
+                if angle > angle_limits[0] and not freeze_angle:
                     angle -= 1
                     edited = True
                 elif not too_tall and not freeze_edit:
-                    length += 1
+                    length += length_increment
                     edited = True
                 
             if too_tall:
                 freeze_edit = True
-                length -= 1
+                length -= length_increment
                 edited = True
                 
             if not edited:
                 break
                 
-                
         height_multiply = min(1, 1.5 * self.WIDTH / self.HEIGHT)
-        #height_multiply = 1
         
-                
         #Set font sizes
         self.text_padding = max(1, self.HEIGHT // 96)
         self.width_padding = 5
@@ -1103,7 +1114,6 @@ class GameCore(object):
         
         #Update surfaces
         self.set_grid_overlay()
-        self.set_grid_blocks()
         self.set_game_title()
         self.set_game_menu_background()
         self.game_draw_background()
@@ -1129,9 +1139,14 @@ class GameCore(object):
         """Handle ending the game from anywhere."""
         self.state = None
     
-    def set_grid_blocks(self):
-    
-        self.screen_blocks = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+                                        
+    def set_grid_overlay(self):
+        """Draws the grid outline to a surface."""
+        
+        #Create transparent surface
+        self.screen_grid = pygame.Surface((self.WIDTH, self.HEIGHT))
+        self.screen_grid.fill(BACKGROUND)
+        
         
         hover = self.temp_data['Hover']
         pending = self.temp_data['PendingMove']
@@ -1152,11 +1167,12 @@ class GameCore(object):
         
         for i in self.game.core._range_lg:
             if self.game.core.grid[i] or i in extra:
-                chunk = i // self.game.core._size_squared
-                base_coordinate = self.draw.relative_coordinates[i % self.game.core._size_squared]
-                coordinate = (base_coordinate[0] + self.draw.offset[0], 
-                    self.draw.offset[1] + chunk * self.draw.chunk_height + self.draw.size_y_sm * 2 - base_coordinate[1])
+                i_reverse = self.game.core._size_cubed - i - 1
+                chunk = i_reverse // self.game.core._size_squared
+                base_coordinate = self.draw.relative_coordinates[i_reverse % self.game.core._size_squared]
                 
+                coordinate = (self.draw.offset[0] - base_coordinate[0],
+                              base_coordinate[1] + self.draw.offset[1] - chunk * self.draw.chunk_height)
                 square = [coordinate,
                           (coordinate[0] + self.draw.size_x_sm,
                            coordinate[1] - self.draw.size_y_sm),
@@ -1195,14 +1211,9 @@ class GameCore(object):
                     block_colour = self.player_colours[self.game.core.grid[i] - 1]
                 
                 if block_colour is not None:
-                    pygame.draw.polygon(self.screen_blocks,
+                    pygame.draw.polygon(self.screen_grid,
                                         block_colour, square, 0)
-                                        
-    def set_grid_overlay(self):
-        """Draws the grid outline to a surface."""
         
-        #Create transparent surface
-        self.screen_grid = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
               
         #Draw grid
         for line in self.draw.line_coordinates:
@@ -1400,6 +1411,8 @@ class GameCore(object):
                         self.option_hover['Scroll'][0] += self.option_set['Scroll']
                 else:
                     self.option_hover['Scroll'][1] = y
+                
+                self.frame_data['GameTime'].temp_fps(self.FPS_SMOOTH)
                     
             elif self.option_hover['Scroll'] is not None:
                 self.option_set['Scroll'] = self.option_hover['Scroll'][0] - self.option_hover['Scroll'][1]
@@ -1416,9 +1429,7 @@ class GameCore(object):
         pygame.draw.rect(self.screen_menu_holder, self.menu_colour, scroll_dimensions, 0)
         pygame.draw.rect(self.screen_menu_holder, BLACK, scroll_dimensions, 1)
         self.frame_data['Redraw'] = True
-        
-                
-    
+
     def set_game_menu_background(self):
         self.screen_menu_background = pygame.Surface((self.menu_width, 960))
         self.screen_menu_background.fill(WHITE)
@@ -1575,8 +1586,7 @@ class GameCore(object):
         
         height_current += start_size[1]
         return (selected_block, height_current)
-        
-    
+     
     def run_ai(self, run=True):
         """Runs the AI in a thread.
         Until _ai_move or _ai_state is not None, it is not completed.
@@ -1629,7 +1639,6 @@ class GameCore(object):
         self.HEIGHT = height_multiplier * 16
         self.WIDTH = int(self.HEIGHT * height_ratio)
         self.state = 'Main'
-        
         self.resize_screen()
         
         pygame.scrap.init()
@@ -1689,13 +1698,6 @@ class GameCore(object):
                 
                 elif self.state == 'Menu':
                     self.game_menu()
-                
-                '''
-                if self.game._ai_move is not None:
-                    print self.game._ai_move, self.game._ai_state
-                    self.run_ai(run=False)
-                    '''
-                
                 #---MAIN LOOP END---#
                 if game_time.fps:
                     pygame.display.set_caption('{}'.format(game_time.fps))
@@ -1751,7 +1753,7 @@ class GameCore(object):
                 self.temp_data['Hover'] = None
                 
             self.set_game_title()
-            self.set_grid_blocks()
+            self.set_grid_overlay()
             self.frame_data['Redraw'] = True
             
         
@@ -1772,7 +1774,7 @@ class GameCore(object):
                     if self.temp_data['PendingMove'] is None:
                         if mouse_block_id is not None and not self.game.core.grid[mouse_block_id]:
                             self.temp_data['PendingMove'] = [mouse_block_id, 
-                                                             self.frame_data['GameTime'].total_ticks + self.WAIT, 
+                                                             self.frame_data['GameTime'].total_ticks + self.MOVE_WAIT, 
                                                              True, 
                                                              False]
                     
@@ -1784,7 +1786,7 @@ class GameCore(object):
                     elif mouse_block_id != self.temp_data['PendingMove'][0]:
                         self.temp_data['PendingMove'][2] = False
                 
-                    self.set_grid_blocks()
+                    self.set_grid_overlay()
                     self.frame_data['Redraw'] = True
                 
                 #Mouse button released
@@ -1798,7 +1800,7 @@ class GameCore(object):
                     else:
                         self.temp_data['PendingMove'] = None
                     
-                    self.set_grid_blocks()
+                    self.set_grid_overlay()
                     self.frame_data['Redraw'] = True
                 
             
@@ -1814,14 +1816,14 @@ class GameCore(object):
                     #Move finished calculating
                     else:
                         self.temp_data['PendingMove'] = [self.game._ai_move, 
-                                                         self.frame_data['GameTime'].total_ticks + self.WAIT, 
+                                                         self.frame_data['GameTime'].total_ticks + self.MOVE_WAIT, 
                                                          True, 
                                                          True]
                                                          
                         self.run_ai(run=False)
                         
                 self.set_game_title()
-                self.set_grid_blocks()
+                self.set_grid_overlay()
                 self.frame_data['Redraw'] = True
         
         #Commit the move
@@ -1854,7 +1856,7 @@ class GameCore(object):
                     else:
                         self.temp_data['Flipped'] = False
                     
-                    self.set_grid_blocks()
+                    self.set_grid_overlay()
                     self.frame_data['Redraw'] = True
                     self.game.core.calculate_score()
         
@@ -1862,8 +1864,13 @@ class GameCore(object):
             self.frame_data['Redraw'] = True
             self.temp_data['Winner'] = self.game.check_game_end()
         
+        '''
         #Copy game state to clipboard
-        pygame.scrap.put(pygame.SCRAP_TEXT, self.game.__repr__())
+        try:
+            pygame.scrap.put(pygame.SCRAP_TEXT, self.game.__repr__())
+        except pygame.error:
+            pass
+            '''
         
         if force_end:
             if force_end == 1:
@@ -1883,8 +1890,6 @@ class GameCore(object):
         grid_size = self.screen_grid.get_size()
         grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_size)]
         self.background = pygame.Surface((self.WIDTH, self.HEIGHT))
-        self.background.fill(BACKGROUND)
-        self.background.blit(self.screen_blocks, grid_location)
         self.background.blit(self.screen_grid, grid_location)
         self.background.blit(self.screen_title, grid_location)
         if self.temp_data['MoveTimeLeft'] is not None:
@@ -1908,5 +1913,5 @@ class GameCore(object):
             self.screen.blit(self.screen_menu_holder, location)
             pygame.display.flip()
 
-c = Connect3DGame(players=(0, 0, 0, 0))
+c = Connect3DGame(players=(0, 0))
 c.play()
