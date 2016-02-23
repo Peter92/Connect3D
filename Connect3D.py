@@ -23,10 +23,11 @@ WHITE = (255, 255, 255)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 RED = (255, 0, 0)
-PURPLE = (255, 120, 235)
+PINK = (255, 120, 235)
+PURPLE = (190, 86, 255)
 
 SELECTION = {'Default': [WHITE, LIGHTGREY],
-             'Background': [True, None],
+             'Background': [True, None],             
              'Foreground': [None, BLACK]}
              
 class GameTime(object):
@@ -1041,10 +1042,14 @@ class GameCore(object):
         self.timer_count = self.TIMER_DEFAULT
         self.timer_enabled = True
         
-        self.colour_order = [GREEN, YELLOW, LIGHTBLUE, PURPLE, RED]
+        self.colour_order = [GREEN, YELLOW, LIGHTBLUE, PINK, PURPLE, RED]
         self.player_colours = list(self.colour_order)
         random.shuffle(self.player_colours)
     
+    def end(self):
+        """Handle ending the game from anywhere."""
+        self.state = None
+        
     def resize_screen(self):
         """Recalculate anything to do with a new width and height."""
         self.HEIGHT = max(200, self.HEIGHT)
@@ -1123,9 +1128,10 @@ class GameCore(object):
         self.font_lg_m = pygame.font.Font(self.font_file, max(height_lg, height_lg_m))
         self.font_md_m = pygame.font.Font(self.font_file, max(height_md, height_md_m))
         self.font_sm_m = pygame.font.Font(self.font_file, max(height_sm, height_sm_m))
+        self.menu_font_size = self.font_lg_m.render('', 1, BLACK).get_size()[1]
         
         self.score_width = None
-        self.menu_padding = min(10, max(self.text_padding, max_width // 64))
+        self.menu_padding = min(10, max(int(self.text_padding), max_width // 64))
         
         font_md_size = self.font_md_m.render('', 1, BLACK).get_rect()[3]
         self.menu_width = font_md_size * 20 #WARNING: hardcoded - change for different menu width
@@ -1155,12 +1161,7 @@ class GameCore(object):
             self.frame_data['Redraw'] = True
         except AttributeError:
             pass
-    
-    def end(self):
-        """Handle ending the game from anywhere."""
-        self.state = None
-    
-                                        
+                         
     def set_grid_overlay(self):
         """Draws the grid outline to a surface."""
         
@@ -1421,7 +1422,7 @@ class GameCore(object):
         scroll_top -= offset
         if offset_adjusted:
             offset *= (menu_height - contents_size) / offset_adjusted
-                
+        self.scroll_offset = offset
             
             
         scroll_dimensions = [self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom]
@@ -1488,13 +1489,13 @@ class GameCore(object):
         
         #Add or remove players
         if show_advanced:
-            height_current -= self.font_lg_size
+            temp_height = height_current - self.menu_font_size
             options = ('Add', 'Remove')
             option_len = len(options)
             selected = []
             
             player_count = len(self.option_set['Players'])
-            too_high = player_count > 3
+            too_high = player_count > len(self.colour_order) - 1
             too_low = player_count < 3
             for i in range(option_len):
                 background = False
@@ -1504,9 +1505,9 @@ class GameCore(object):
                     
                 selected.append([background, foreground])
             result = self._game_menu_option('',
-                                            options, selected, height_current,
+                                            options, selected, temp_height,
                                             blit_list, rect_list, centre=True)
-            self.option_hover['PlayerChange'], height_current = result
+            self.option_hover['PlayerChange'], temp_height = result
             
             #Update players and adjust shuffle count to players + 1
             if self.option_hover['PlayerChange'] is not None and mouse_clicked:
@@ -1515,46 +1516,45 @@ class GameCore(object):
                 
                 if self.option_hover['PlayerChange'] and not too_low:
                     del self.option_set['Players'][-1]
+                    del self.option_hover['Players'][-1]
                     changed_players = True
                     
                 elif not self.option_hover['PlayerChange'] and not too_high:
                     self.option_set['Players'].append(self.game.ai.DEFAULT_DIFFICULTY + 1)
-                    self.update_players()
+                    self.option_hover['Players'].append(None)
+                    changed_players = True
                 
                 if changed_players:
-                    self.update_players()
                     if instant_restart:
                         self.frame_data['Reload'] = True
                 
                 self.option_set['ShuffleTurns'] = shuffle_turns * len(self.option_set['Players']) + 1
         
-            height_current += self.menu_padding
         
         #Configure players
         options = ('Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme')
         option_len = len(options)
         
-        for id, player in enumerate(self.game.players):
+        for id, player in enumerate(self.option_set['Players']):
         
             selected = []
             dict_name = 'Player{}'.format(id + 1)
             
             for i in range(option_len):
                 background = i == player
-                foreground = i in (self.option_set[dict_name], self.option_hover[dict_name])
+                foreground = i in (self.option_set['Players'][id], self.option_hover['Players'][id])
                 selected.append((background, foreground))
-        
+            
             result = self._game_menu_option('Player {}: '.format(id + 1),
                                             options, selected, height_current,
                                             blit_list, rect_list)
-            self.option_hover[dict_name], height_current = result
+            self.option_hover['Players'][id], height_current = result
             height_current += self.menu_padding
             
-            if self.option_hover[dict_name] is not None and mouse_clicked:
-                if self.option_set['PlayerChange'] is None:
-                    self.option_set[dict_name] = self.option_hover[dict_name]
-                    if instant_restart:
-                        self.frame_data['Reload'] = True
+            if self.option_hover['Players'][id] is not None and mouse_clicked:
+                self.option_set['Players'][id] = self.option_hover['Players'][id]
+                if instant_restart:
+                    self.frame_data['Reload'] = True
         
         
         height_current += self.menu_padding * 2
@@ -1725,8 +1725,7 @@ class GameCore(object):
                     
         for font in blit_list:
             self.screen_menu_background.blit(*font)
-            
-        
+         
     def _game_menu_title(self, title, subtitle, height_current, blit_list):
         
         font = self.font_lg_m.render(title, 1, BLACK)
@@ -1798,7 +1797,7 @@ class GameCore(object):
             pass
         else:
             x -= self.menu_location[0] + self.scroll_width // 2
-            y -= self.menu_location[1]
+            y -= self.menu_location[1] + self.scroll_offset
             for i, square in enumerate(square_list):
                 x_selected = square[0] < x < square[0] + square[2]
                 y_selected = square[1] < y < square[1] + square[3]
@@ -1852,8 +1851,8 @@ class GameCore(object):
             except KeyError:
                 pass
             
-            self.update_settings()
-                
+        self.update_settings()
+        
         #Reset any game data
         self.temp_data = {'Hover': None,
                           'PendingMove': None,
@@ -1864,30 +1863,15 @@ class GameCore(object):
                           'Skipped': False,
                           'MoveTimeLeft': None}
     
-    
-    def update_players(self):
-        
-        #Adjust the dictionary to contain details on every player
-        i = 0
-        while True:
-            i += 1
-            dict_name = 'Player{}'.format(i)
-            if i <= len(self.option_set['Players']):
-                if dict_name not in self.option_set:
-                    self.option_set[dict_name] = self.game.players[i - 1]
-                    self.option_hover[dict_name] = self.game.players[i - 1]
-            elif dict_name in self.option_set:
-                del self.option_set[dict_name]
-            else:
-                break
-    
     def update_settings(self):
     
         #Save if advanced options is enabled or not
         try:
             advanced_options = self.option_set['AdvancedOptions']
+            scroll_position = self.option_set['Scroll']
         except AttributeError:
             advanced_options = None
+            scroll_position = 0
         
         self.option_set = {'Scroll': None,
                            'ShuffleLevel': None,
@@ -1895,19 +1879,20 @@ class GameCore(object):
                            'TimeChange': None,
                            'PlayerChange': None,
                            'AdvancedOptions': None,
-                           'Players': None,
+                           'Players': [None for _ in self.game._range_players],
                            'GridSize': None,
                            'ShuffleTurns': None}
         self.option_hover = dict(self.option_set)
         
         self.option_set['AdvancedOptions'] = advanced_options
+        self.option_set['Scroll'] = scroll_position
         self.option_set['ShuffleLevel'] = self.game.core.shuffle_level
         self.option_set['TimeEnabled'] = not self.timer_count
         self.option_set['Players'] = self.game.players
         self.option_set['GridSize'] = self.game.core.size
         self.option_set['ShuffleTurns'] = self.game.shuffle_turns
         
-        self.update_players()
+        self.scroll_offset = 0
         try:
             self.redraw()
         except AttributeError:
@@ -1930,19 +1915,15 @@ class GameCore(object):
             return
         
         #Adjust width and height to fit on screen
-        screen_height = pygame.display.Info().current_h * 0.9
-        height_multiplier = int(screen_height / 16)
+        screen_height = pygame.display.Info().current_h * 0.85
         height_ratio = self.WIDTH / self.HEIGHT
-        self.HEIGHT = height_multiplier * 16
+        self.HEIGHT = int(screen_height / 16) * 16
         self.WIDTH = int(self.HEIGHT * height_ratio)
         self.state = 'Menu'
         
         
         self.reload()
-        self.update_settings()
-        self.update_players()
         self.resize_screen()
-        
         
         pygame.scrap.init()
         
