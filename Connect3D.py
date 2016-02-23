@@ -1089,20 +1089,22 @@ class GameCore(object):
     
     def end(self):
         """Handle ending the game from anywhere."""
-        self.state = None
-        
-    def resize_screen(self):
-        """Recalculate anything to do with size when a new width or height is set."""
-        self.HEIGHT = max(200, self.HEIGHT)
-        self.mid_point = [self.WIDTH // 2, self.HEIGHT // 2]
-        self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.RESIZABLE | pygame.DOUBLEBUF)
-        
+        self.update_state(None)
+    
+    def resize_draw_data(self, C3D, x, y, angle_range=None, width_limits=None, height_limits=None, start_offset=None):
         #Set length and angle to fit on the screen
-        length = self.game.core.size
-        angle = 24
-        angle_limits = (angle, 42)
         
-        offset = (self.mid_point[0], self.mid_point[1] + self.HEIGHT // 25)
+        mid_point = [x // 2, y // 2]
+        length = C3D.size
+        
+        angle_limits = angle_range or (1, 89)
+        angle = angle_limits[0]
+        
+        offset = [mid_point[0], mid_point[1]]
+        if start_offset:
+            offset[0] += start_offset[0]
+            offset[1] += start_offset[1]
+            
         freeze_edit = False
         freeze_angle = False
         
@@ -1111,15 +1113,15 @@ class GameCore(object):
             edited = False
             padding = int(pow(90 - angle, 0.75) - 15)
             
-            self.draw = DrawData(self.game.core, length, angle, padding, offset)
+            draw = DrawData(C3D, length, angle, padding, offset)
             
-            height = self.draw.chunk_height * self.game.core.size
-            width = self.draw.size_x * 2
+            height = draw.chunk_height * C3D.size
+            width = draw.size_x * 2
             
-            too_small = height < self.HEIGHT * 0.85
-            too_tall = height > self.HEIGHT * 0.88
-            too_thin = width < self.WIDTH * 0.85
-            too_wide = width > self.WIDTH * 0.9
+            too_small = height < y * (1 if not height_limits else height_limits[0])
+            too_tall = height > y * (1 if not height_limits else height_limits[1])
+            too_thin = width < x * (1 if not width_limits else width_limits[0])
+            too_wide = width > x * (1 if not width_limits else width_limits[1])
                     
             if too_wide or too_small and not too_thin:
                 if angle < angle_limits[1]:
@@ -1144,7 +1146,20 @@ class GameCore(object):
                 edited = True
                 
             if not edited:
-                break
+                return draw
+    
+    def resize_screen(self):
+        """Recalculate anything to do with size when a new width or height is set."""
+        self.HEIGHT = max(200, self.HEIGHT)
+        self.mid_point = [self.WIDTH // 2, self.HEIGHT // 2]
+        self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT), pygame.RESIZABLE | pygame.DOUBLEBUF)
+        
+        
+        draw_width_limits = (0.85, 0.9)
+        draw_height_limits = (0.85, 0.88)
+        self.draw = self.resize_draw_data(self.game.core, self.WIDTH, self.HEIGHT, angle_range=(24, 42),
+                                          width_limits=draw_width_limits, height_limits=draw_height_limits,
+                                          start_offset=(0, self.HEIGHT//25))
                 
         height_multiply = min(1, 1.5 * self.WIDTH / self.HEIGHT)
         height_lg = int(self.HEIGHT / 28 * height_multiply)
@@ -1162,9 +1177,9 @@ class GameCore(object):
         #Menu sizes
         max_width = min(640, self.WIDTH) #Width will not affect menu past this point
         
-        height_lg_m = int(max_width / 20)
-        height_md_m = int(max_width / 26)
-        height_sm_m = int(max_width / 30)
+        height_lg_m = int(round(max_width / 20))
+        height_md_m = int(round(max_width / 26))
+        height_sm_m = int(round(max_width / 29))
         self.font_lg_m = pygame.font.Font(self.font_file, max(height_lg, height_lg_m))
         self.font_md_m = pygame.font.Font(self.font_file, max(height_md, height_md_m))
         self.font_sm_m = pygame.font.Font(self.font_file, max(height_sm, height_sm_m))
@@ -1178,28 +1193,76 @@ class GameCore(object):
         self.menu_height_offset = self.HEIGHT // 18 * height_multiply
         self.scroll_width = self.scroll_padding = self.menu_width // 26
         
+        
+        #Generate example grids
+        try:
+            self.menu_colour
+        except AttributeError:
+            pass
+        else:
+            grid_data = [base64.b64encode(zlib.compress(str(bytearray(map(int, list(i)))))) for i in [
+            '0000000000000000000011110000000000000000000000000000000000000000',   #across
+            '0000000000000000010001000100010000000000000000000000000000000000',   #across
+            '0000000000000000000100100100100000000000000000000000000000000000',   #diagonal flat
+            '0000000000000000100001000010000100000000000000000000000000000000',   #diagonal flat
+            '0000010000000000000001000000000000000100000000000000010000000000',   #down
+            '0000100000000000000001000000000000000010000000000000000100000000',   #diagonal down
+            '0000000100000000000000100000000000000100000000000000100000000000',   #diagonal down
+            '0100000000000000000001000000000000000000010000000000000000000100',   #diagonal down
+            '0000000000000100000000000100000000000100000000000100000000000000',   #diagonal down
+            '1000000000000000000001000000000000000000001000000000000000000001',   #corner to corner
+            '0000000000000001000000000010000000000100000000001000000000000000',   #corner to corner
+            '0001000000000000000000100000000000000000010000000000000000001000',   #corner to corner
+            '0000000000001000000000000100000000000010000000000001000000000000']   #corner to corner
+            ]
+            self.example_grid = []
+            width = self.menu_width / 2.5
+            height = width * 2
+            
+            for i in grid_data:
+                C3D = Connect3D(4).load(i)
+                draw = self.resize_draw_data(C3D, width, height)
+                surface = self.draw_grid_overlay(core=C3D, draw=draw, player_colours=[self.menu_colour], width=width, height=height, background=WHITE)
+                self.example_grid.append(surface)
+                
+            self.example_grid_count = len(self.example_grid)
+                
+        
+        #Get menu size
         self.redraw()
         menu_size = self.screen_menu_background.get_size()
         self.menu_location = [0, self.menu_height_offset]
         self.menu_location[0] = self.mid_point[0] - menu_size[0] // 2 - self.scroll_width // 2
+        
+        
     
     def redraw(self):
         """Recalculate all surfaces and draw them to the screen."""
         self.set_grid_overlay()
         self.set_game_title()
-        self.set_game_menu_background()
-        self.set_game_menu_instructions()
         self.game_draw_background()
         self.screen.blit(self.background, (0, 0))
         self.update_state()
     
-    def update_state(self):
+    def update_state(self, new_state=-1):
         """Calculations to be done when the state of the game is changed."""
+        if new_state != -1:
+            self.state = new_state
+            
         if self.state == 'Menu':
-            transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
-            transparent.fill(list(WHITE) + [200])
-            self.game_draw_background()
-            self.background.blit(transparent, (0, 0))
+            try:
+                transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+                transparent.fill(list(WHITE) + [200])
+                self.background.blit(transparent, (0, 0))
+                self.set_game_menu_background()
+                self.game_draw_background()
+            except AttributeError:
+                pass
+        elif self.state == 'Instructions':
+            self.set_game_menu_instructions()
+        elif self.state == 'About':
+            self.set_game_menu_about()
+        
         try:
             self.frame_data['Redraw'] = True
             if self.state == 'Main':
@@ -1209,20 +1272,12 @@ class GameCore(object):
         except (AttributeError, KeyError):
             pass
                 
-                         
-    def set_grid_overlay(self):
-        """Draws the grid with coloured blocks to a surface."""
-        
-        #Create transparent surface
-        self.screen_grid = pygame.Surface((self.WIDTH, self.HEIGHT))
-        self.screen_grid.fill(BACKGROUND)
-        
-        try:
-            hover = self.temp_data['Hover']
-            pending = self.temp_data['PendingMove']
-            early = self.temp_data['EarlyHover']
-        except AttributeError:
-            hover = pending = early = None
+    
+    def draw_grid_overlay(self, core=None, draw=None, hover=None, pending=None, early=None, background=None, player_colours=None, width=None, height=None):
+    
+        colours = player_colours or self.player_colours
+        core = core or self.game.core
+        draw = draw or self.draw
         extra = [hover, pending, early]
         try:
             extra[0] = extra[0][0]
@@ -1236,35 +1291,38 @@ class GameCore(object):
             extra[2] = extra[2][0]
         except TypeError:
             pass
+            
+        surface = pygame.Surface((width or self.WIDTH, height or self.HEIGHT))
+        surface.fill(background if background else BACKGROUND)
         
-        for i in self.game.core._range_lg:
-            if self.game.core.grid[i] or i in extra:
-                i_reverse = self.game.core._size_cubed - i - 1
-                chunk = i_reverse // self.game.core._size_squared
-                base_coordinate = self.draw.relative_coordinates[i_reverse % self.game.core._size_squared]
+        for i in core._range_lg:
+            if core.grid[i] or i in extra:
+                i_reverse = core._size_cubed - i - 1
+                chunk = i_reverse // core._size_squared
+                base_coordinate = draw.relative_coordinates[i_reverse % core._size_squared]
                 
-                coordinate = (self.draw.offset[0] - base_coordinate[0],
-                              base_coordinate[1] + self.draw.offset[1] - chunk * self.draw.chunk_height)
+                coordinate = (draw.offset[0] - base_coordinate[0],
+                              base_coordinate[1] + draw.offset[1] - chunk * draw.chunk_height)
                 square = [coordinate,
-                          (coordinate[0] + self.draw.size_x_sm,
-                           coordinate[1] - self.draw.size_y_sm),
+                          (coordinate[0] + draw.size_x_sm,
+                           coordinate[1] - draw.size_y_sm),
                           (coordinate[0],
-                           coordinate[1] - self.draw.size_y_sm * 2),
-                          (coordinate[0] - self.draw.size_x_sm,
-                           coordinate[1] - self.draw.size_y_sm),
+                           coordinate[1] - draw.size_y_sm * 2),
+                          (coordinate[0] - draw.size_x_sm,
+                           coordinate[1] - draw.size_y_sm),
                           coordinate]
                           
                 #Player has mouse over square
                 block_colour = None
                 
-                if not self.game.core.grid[i]:
+                if not core.grid[i]:
                     
                     #Hovering over block
                     if i == extra[0]:
-                        block_colour = mix_colour(WHITE, WHITE, self.player_colours[hover[1] - 1])
+                        block_colour = mix_colour(WHITE, WHITE, colours[hover[1] - 1])
                         
                     if i == extra[1]:
-                        player_colour = self.player_colours[self.game._player - 1]
+                        player_colour = colours[self.game._player - 1]
                         
                         #Holding down over block
                         if pending[2]:
@@ -1276,21 +1334,36 @@ class GameCore(object):
                     
                     #Hovering over block between turns
                     if i == extra[2]:
-                        block_colour = mix_colour(WHITE, WHITE, self.player_colours[early[1] - 1])
+                        block_colour = mix_colour(WHITE, WHITE, colours[early[1] - 1])
                 
                 #Square is taken by a player
                 else:
-                    block_colour = self.player_colours[self.game.core.grid[i] - 1]
+                    block_colour = colours[core.grid[i] - 1]
                 
                 if block_colour is not None:
-                    pygame.draw.polygon(self.screen_grid,
+                    pygame.draw.polygon(surface,
                                         block_colour, square, 0)
         
               
         #Draw grid
-        for line in self.draw.line_coordinates:
-            pygame.draw.aaline(self.screen_grid,
+        for line in draw.line_coordinates:
+            pygame.draw.aaline(surface,
                                BLACK, line[0], line[1], 1)
+    
+        return surface
+    
+    def set_grid_overlay(self):
+        """Draws the grid with coloured blocks to a surface."""
+        
+        try:
+            hover = self.temp_data['Hover']
+            pending = self.temp_data['PendingMove']
+            early = self.temp_data['EarlyHover']
+        except AttributeError:
+            hover = pending = early = None
+        
+        self.screen_grid = self.draw_grid_overlay(hover=hover, pending=pending, early=early)
+        
     
     def set_game_time(self):
         """Renders the time remaining.
@@ -1441,12 +1514,15 @@ class GameCore(object):
         
         self.set_game_time()  
     
-    def set_game_menu_container(self):
+    def set_game_menu_container(self, update_scroll=True):
         
+        start_scroll = self.option_set['Scroll']
         if self.state == 'Menu':
             contents = self.screen_menu_background
         elif self.state == 'Instructions':
             contents = self.screen_menu_instructions
+        elif self.state == 'About':
+            contents = self.screen_menu_about
         else:
             contents = self.screen_menu_background
         contents_size = contents.get_size()[1]
@@ -1454,9 +1530,19 @@ class GameCore(object):
         menu_width = self.menu_width + self.scroll_width // 2 + 1
     
         max_height = self.HEIGHT - self.menu_location[1] * 4
-        min_height = 10
+        min_height = self.menu_padding
         menu_height = max(min_height, min(max_height, contents_size))
         
+        
+        #Mouse wheel
+        used_mouse_wheel = False
+        if update_scroll:
+            used_mouse_wheel = self.frame_data['MouseClick'][3] or self.frame_data['MouseClick'][4]
+            scroll_speed = menu_height / 10
+            self.option_set['Scroll'] += scroll_speed * self.frame_data['MouseClick'][3]
+            self.option_set['Scroll'] -= scroll_speed * self.frame_data['MouseClick'][4]
+        
+            
         #Scroll bar
         scroll_top = self.scroll_padding
         scroll_bottom = (menu_height - self.scroll_padding - scroll_top) * (menu_height / contents_size)
@@ -1464,51 +1550,50 @@ class GameCore(object):
         #Set correct offset
         if self.option_hover['Scroll'] is not None:
             offset = self.option_hover['Scroll'][0] - self.option_hover['Scroll'][1]
-        elif self.option_set['Scroll'] is not None:
-            offset = self.option_set['Scroll']
         else:
-            offset = 0
+            offset = self.option_set['Scroll']
         
         #Correctly size the scroll speed and scroll bar
         offset_adjusted = self.scroll_padding * 3 + scroll_bottom - scroll_top - menu_height
         offset = max(offset_adjusted, min(0, offset))
-        if self.option_set['Scroll'] is not None:
-            self.option_set['Scroll'] = max(offset_adjusted, min(0, self.option_set['Scroll']))
             
         scroll_top -= offset
         if offset_adjusted:
             offset *= (menu_height - contents_size) / offset_adjusted
-        self.scroll_offset = offset
-            
             
         scroll_dimensions = [self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom]
-            
-        try:
-            x, y = self.frame_data['MousePos']
-            
-        except AttributeError:
-            pass
-            
-        else:
-            x -= self.menu_location[0] + self.scroll_width // 2
-            y -= self.menu_location[1]
-            x_selected = scroll_dimensions[0] < x < scroll_dimensions[0] + scroll_dimensions[2]
-            y_selected = scroll_dimensions[1] < y < scroll_dimensions[1] + scroll_dimensions[3]
-            
-            if self.frame_data['MouseClick'][0]:
-                if self.option_hover['Scroll'] is None:
-                    if x_selected and y_selected:
-                        self.option_hover['Scroll'] = [y, y]
-                    if self.option_set['Scroll'] is not None and self.option_hover['Scroll'] is not None:
-                        self.option_hover['Scroll'][0] += self.option_set['Scroll']
-                else:
-                    self.option_hover['Scroll'][1] = y
+        if update_scroll:
+        
+            if self.option_set['Scroll'] is not None:
+                self.option_set['Scroll'] = max(offset_adjusted, min(0, self.option_set['Scroll']))
                 
-                self.frame_data['GameTime'].temp_fps(self.FPS_SMOOTH)
+            try:
+                x, y = self.frame_data['MousePos']
+                
+            except AttributeError:
+                pass
+                
+            else:
+                x -= self.menu_location[0] + self.scroll_width // 2
+                y -= self.menu_location[1]
+                x_selected = scroll_dimensions[0] < x < scroll_dimensions[0] + scroll_dimensions[2]
+                y_selected = scroll_dimensions[1] < y < scroll_dimensions[1] + scroll_dimensions[3]
+                
+                if self.frame_data['MouseClick'][0]:
+                    if self.option_hover['Scroll'] is None:
+                        if x_selected and y_selected:
+                            self.option_hover['Scroll'] = [y, y]
+                        if self.option_set['Scroll'] is not None and self.option_hover['Scroll'] is not None:
+                            self.option_hover['Scroll'][0] += self.option_set['Scroll']
+                    else:
+                        self.option_hover['Scroll'][1] = y
                     
-            elif self.option_hover['Scroll'] is not None:
-                self.option_set['Scroll'] = self.option_hover['Scroll'][0] - self.option_hover['Scroll'][1]
-                self.option_hover['Scroll'] = None
+                    self.frame_data['GameTime'].temp_fps(self.FPS_SMOOTH)
+                        
+                elif self.option_hover['Scroll'] is not None:
+                    self.option_set['Scroll'] = self.option_hover['Scroll'][0] - self.option_hover['Scroll'][1]
+                    self.option_hover['Scroll'] = None
+            self.scroll_offset = offset
         
         
         self.screen_menu_holder = pygame.Surface((self.menu_width + self.scroll_width // 2 + 1, menu_height), pygame.SRCALPHA, 32)
@@ -1520,19 +1605,92 @@ class GameCore(object):
         #Draw scroll bar
         pygame.draw.rect(self.screen_menu_holder, self.menu_colour, scroll_dimensions, 0)
         pygame.draw.rect(self.screen_menu_holder, BLACK, scroll_dimensions, 1)
-        self.frame_data['Redraw'] = True
-
-    def set_game_menu_instructions(self):
+        
+        if start_scroll != self.option_set['Scroll']:
+            self.frame_data['Redraw'] = True
+        return used_mouse_wheel
+        
+    def set_game_menu_about(self):
+    
+        mouse_clicked = self._mouse_click()
         height_current = self.menu_padding
         blit_list = []
         rect_list = []
         
-        #Render menu title
+        title_message = 'About'
+        subtitle_message = 'Version 1.1'
+        height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
+        
+        
+        self.screen_menu_about = self.blit_stuff(height_current, blit_list, rect_list)
+    
+    def set_game_menu_instructions(self):
+    
+        mouse_clicked = self._mouse_click()
+        height_current = self.menu_padding
+        blit_list = []
+        rect_list = []
+        
         title_message = 'Instructions'
         subtitle_message = ''
         height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
         
+        text_chunks = ['The aim of the game is to finish with more points than',
+                       'your opponent.',
+                       '',
+                       'You get one point for completing a row in any direction,',
+                       'and the game ends when no more points are available.']
+        for message in text_chunks:
+            if not message:
+                height_current += self.menu_padding
+                continue
+            result = self._game_menu_option(message,
+                                            [], [], height_current,
+                                            blit_list, rect_list, 
+                                            font=self.font_sm_m)
+            _, height_current = result
+        
+        
+        options = ('Previous', 'Next')
+        option_len = len(options)
+        selected = []
+        for i in range(option_len):
+            background = False
+            foreground = i == self.option_hover['OptionDirectionExample']
+            selected.append([background, foreground])
+        
+        current_grid = self.option_set['OptionDirectionExample'] % self.example_grid_count
+        result = self._game_menu_option('Here are examples of each direction ({}/{}):'.format(current_grid + 1, self.example_grid_count),
+                                        options, selected, height_current,
+                                        blit_list, rect_list,
+                                        font=self.font_sm_m)
+        self.option_hover['OptionDirectionExample'], height_current = result
+        if self.option_hover['OptionDirectionExample'] is not None and mouse_clicked:
+            self.option_set['OptionDirectionExample'] += self.option_hover['OptionDirectionExample'] * 2 - 1
+        
+        #Draw grid
+        height_current += self.menu_padding
+        surface = self.example_grid[current_grid]
+        grid_height = height_current
+        height_current += surface.get_size()[1]
+        
+        
+        
+        text_chunks = ['The grid will flip itself to stop things from becoming too',
+                       'easy.']
+        for message in text_chunks:
+            if not message:
+                height_current += self.menu_padding
+                continue
+            result = self._game_menu_option(message,
+                                            [], [], height_current,
+                                            blit_list, rect_list, 
+                                            font=self.font_sm_m)
+            _, height_current = result
+            
+        
         self.screen_menu_instructions = self.blit_stuff(height_current, blit_list, rect_list)
+        self.screen_menu_instructions.blit(surface, (self.menu_width / 4 + self.scroll_width, grid_height))
         
     def set_game_menu_background(self):
         height_current = self.menu_padding
@@ -1569,6 +1727,7 @@ class GameCore(object):
                         foreground = False
                         
                     selected.append([background, foreground])
+                    
                 result = self._game_menu_option('',
                                                 options, selected, temp_height,
                                                 blit_list, rect_list, centre=True)
@@ -1647,7 +1806,6 @@ class GameCore(object):
             if self.option_hover['EndEarly'] is not None and mouse_clicked:
                 self.option_set['EndEarly'] = not self.option_hover['EndEarly']
             height_current += self.menu_padding
-        
          
         #Shuffle options
         if True:
@@ -1765,6 +1923,7 @@ class GameCore(object):
         #Grid size options
         if True:
             if show_advanced:
+            
                 height_current += self.menu_padding
                 options = ('Increase', 'Decrease')
                 option_len = len(options)
@@ -1786,9 +1945,18 @@ class GameCore(object):
                     self.option_set['GridSize'] += 1 - self.option_hover['GridSize'] * 2
                     if instant_restart:
                         self.frame_data['Reload'] = True
-                height_current += self.menu_padding * 3
+                height_current += self.menu_padding
             
+                #Slow warning
+                if self.option_set['GridSize'] > 5 and any(self.option_set['Players']):
+                    result = self._game_menu_option('Warning: The AI will run extremely slow!',
+                                                    [], [], height_current,
+                                                    blit_list, rect_list, centre=True)
+                    _, height_current = result
         
+                    height_current += self.menu_padding
+                height_current += self.menu_padding
+            
         
         #Menu buttons
         if instant_restart:
@@ -1799,7 +1967,7 @@ class GameCore(object):
             self.option_hover['OptionNewGame'], _ = result
             if self.option_hover['OptionNewGame'] and mouse_clicked:
                 self.frame_data['Reload'] = True
-                self.state = 'Main'
+                self.update_state('Main')
                 
             
             result = self._game_menu_button('Instructions',
@@ -1809,7 +1977,7 @@ class GameCore(object):
             self.option_hover['OptionInstructions'], height_current = result
             height_current += self.menu_padding * 2
             if self.option_hover['OptionInstructions'] and mouse_clicked:
-                self.state = 'Instructions'
+                self.update_state('Instructions')
             
             result = self._game_menu_button('Quit To Desktop',
                                             self.option_hover['OptionQuit'], 
@@ -1828,7 +1996,7 @@ class GameCore(object):
             self.option_hover['OptionInstructions'], height_current = result
             height_current += self.menu_padding * 2
             if self.option_hover['OptionInstructions'] and mouse_clicked:
-                self.state = 'Instructions'
+                self.update_state('Instructions')
                 
             result = self._game_menu_option('Restart game to apply settings.',
                                             [], [], height_current,
@@ -1842,7 +2010,7 @@ class GameCore(object):
                                             align=0)
             self.option_hover['OptionContinue'], _ = result
             if self.option_hover['OptionContinue'] and mouse_clicked:
-                self.state = 'Main'
+                self.update_state('Main')
             
             result = self._game_menu_button('New Game',
                                             self.option_hover['OptionNewGame'], 
@@ -1852,7 +2020,7 @@ class GameCore(object):
             height_current += self.menu_padding * 2
             if self.option_hover['OptionNewGame'] and mouse_clicked:
                 self.frame_data['Reload'] = True
-                self.state = 'Main'
+                self.update_state('Main')
                 
                 
             result = self._game_menu_button('Quit To Desktop',
@@ -1878,8 +2046,9 @@ class GameCore(object):
                 
             result = self._game_menu_option('Show advanced options?',
                                             options, selected, height_current,
-                                            blit_list, rect_list, centre=True)
+                                            blit_list, rect_list, centre=True, fade=True)
             self.option_hover['AdvancedOptions'], height_current = result
+            height_current += self.menu_padding
             
             if self.option_hover['AdvancedOptions'] is not None and mouse_clicked:
                 self.option_set['AdvancedOptions'] = not self.option_hover['AdvancedOptions']
@@ -1948,13 +2117,13 @@ class GameCore(object):
             
         return (hovering, height_current)
         
-    
-    def _game_menu_option(self, message, options, selected, height_current, blit_list, rect_list, centre=False):
+    def _game_menu_option(self, message, options, selected, height_current, blit_list, rect_list, centre=False, font=None, fade=False):
         padding = 2
+        font_type = font or self.font_md_m
         
-        font = self.font_md_m.render('{} '.format(message), 1, BLACK)
+        font = font_type.render('{} '.format(message), 1, SELECTION['Default'][1] if fade else BLACK)
         start_size = font.get_rect()[2:]
-        fonts = [self.font_md_m.render(option, 1, BLACK) for option in options]
+        fonts = [font_type.render(option, 1, BLACK) for option in options]
         sizes = [option.get_rect()[2:] for option in fonts]
         
         offset = 0
@@ -1998,7 +2167,7 @@ class GameCore(object):
                 text_colour = self.menu_colour
             
             #Add to list
-            font = self.font_md_m.render(options[i], 1, text_colour)
+            font = font_type.render(options[i], 1, text_colour)
             blit_list.append((font, (width_offset, height_current)))
             rect_list.append([rect_colour, square])
     
@@ -2083,10 +2252,12 @@ class GameCore(object):
             advanced_options = self.option_set['AdvancedOptions']
             scroll_position = self.option_set['Scroll']
             end_early = self.option_set['EndEarly']
+            grid_hover = self.option_hover['GridSize']
         except AttributeError:
             advanced_options = None
             scroll_position = 0
             end_early = True
+            grid_hover = 0
         
         self.option_set = {'Scroll': None,
                            'ShuffleLevel': None,
@@ -2103,9 +2274,12 @@ class GameCore(object):
                            'OptionAbout': None,
                            'OptionBack': None,
                            'OptionQuit': None,
-                           'OptionContinue': None}
+                           'OptionContinue': None,
+                           'OptionDirectionExample': None}
         self.option_hover = dict(self.option_set)
         
+        self.option_hover['GridSize'] = grid_hover
+        self.option_set['OptionDirectionExample'] = 0
         self.option_set['EndEarly'] = end_early
         self.option_set['AdvancedOptions'] = advanced_options
         self.option_set['Scroll'] = scroll_position
@@ -2139,11 +2313,10 @@ class GameCore(object):
         
         #Adjust width and height to fit on screen
         screen_height = pygame.display.Info().current_h * 0.85
-        height_ratio = self.WIDTH / self.HEIGHT
+        self.height_ratio = self.WIDTH / self.HEIGHT
         self.HEIGHT = int(screen_height / 16) * 16
-        self.WIDTH = int(self.HEIGHT * height_ratio)
-        self.state = 'Menu'
-        
+        self.WIDTH = int(self.HEIGHT * self.height_ratio)
+        self.update_state('Menu')
         
         self.reload()
         self.resize_screen()
@@ -2160,7 +2333,7 @@ class GameCore(object):
                                    'Events': pygame.event.get(),
                                    'Keys': pygame.key.get_pressed(),
                                    'MousePos': pygame.mouse.get_pos(),
-                                   'MouseClick': list(pygame.mouse.get_pressed()),
+                                   'MouseClick': list(pygame.mouse.get_pressed()) + [0, 0],
                                    'MouseUse': any(pygame.mouse.get_pressed()),
                                    'Reload': False}
                     
@@ -2171,7 +2344,7 @@ class GameCore(object):
                 
                 for event in self.frame_data['Events']:
                     if event.type == pygame.QUIT:
-                        self.state = None
+                        self.update_state(None)
                         
                     elif event.type == pygame.VIDEORESIZE:
                         self.WIDTH, self.HEIGHT = event.dict['size']
@@ -2180,8 +2353,7 @@ class GameCore(object):
                         
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         self.frame_data['MouseUse'] = True
-                        if event.button <= 3:
-                            self.frame_data['MouseClick'][event.button - 1] = 1
+                        self.frame_data['MouseClick'][event.button - 1] = 1
                         
                     elif event.type == pygame.MOUSEBUTTONUP:
                         self.frame_data['MouseUse'] = True
@@ -2192,13 +2364,13 @@ class GameCore(object):
                     elif event.type == pygame.KEYDOWN:
                         if event.key == pygame.K_ESCAPE:
                             if self.state == 'Main':
-                                self.state = 'Menu'
+                                self.update_state('Menu')
                             elif self.state == 'Menu':
-                                self.state = 'Main'
+                                self.update_state('Main')
                             elif self.state == 'Instructions':
-                                self.state = 'Menu'
-                            
-                            self.update_state()
+                                self.update_state('Menu')
+                            elif self.state == 'About':
+                                self.update_state('Instructions')
                     
                     
                 #---MAIN LOOP START---#
@@ -2206,15 +2378,19 @@ class GameCore(object):
                 if self.state == 'Main':
                     self.game_main()
                 
-                elif self.state == 'Menu':
+                elif self.state in ('Menu', 'Instructions', 'About'):
                     self.game_menu()
+                    
+                #Redraw once per second
+                if not game_time.total_ticks % self.TICKS:
+                    self.frame_data['Redraw'] = True
+                
+                if self.frame_data['Redraw']:
+                    pygame.display.flip()
                     
                 if self.frame_data['Reload']:
                     self.reload()
                 
-                #if self.frame_data['Redraw']:
-                #    print game_time.total_ticks
-                    
                 #---MAIN LOOP END---#
                 if game_time.fps:
                     pygame.display.set_caption('{}'.format(game_time.fps))
@@ -2232,7 +2408,6 @@ class GameCore(object):
             self.temp_data['MoveTimeLeft'] -= self.frame_data['GameTime'].ticks
             if old_time_left // self.TICKS != self.temp_data['MoveTimeLeft'] // self.TICKS:
                 
-                #Redraw once per second
                 self.frame_data['Redraw'] = True
                 self.set_game_time()
             
@@ -2347,6 +2522,10 @@ class GameCore(object):
                 self.set_game_title()
                 self.set_grid_overlay()
                 self.frame_data['Redraw'] = True
+            
+            #else:
+            #    self.set_game_title()
+            #    self.frame_data['Redraw'] = True
         
         #Commit the move
         else:
@@ -2406,7 +2585,6 @@ class GameCore(object):
             #print self.frame_data['GameTime'].ticks
             self.game_draw_background()
             self.screen.blit(self.background, (0, 0))
-            pygame.display.flip()
     
     def game_draw_background(self):
         
@@ -2428,21 +2606,33 @@ class GameCore(object):
         if self.frame_data['MouseUse']:
             self.frame_data['Redraw'] = True
             
-        self.set_game_menu_background()
-        self.set_game_menu_instructions()
-        
         if self.frame_data['Redraw']:
-            #print self.frame_data['GameTime'].ticks
+        
+            mouse_wheel_scroll = self.set_game_menu_container()
+            if self.state == 'Menu':
+                self.set_game_menu_background()
+            elif self.state == 'Instructions':
+                self.set_game_menu_instructions()
+            elif self.state == 'About':
+                self.set_game_menu_about()
             
-            self.set_game_menu_container()
+            #Rerun calculations to update what the mouse is now hovering over
+            if mouse_wheel_scroll:
+                if self.state == 'Menu':
+                    self.set_game_menu_background()
+                elif self.state == 'Instructions':
+                    self.set_game_menu_instructions()
+                elif self.state == 'About':
+                    self.set_game_menu_about()
+                self.set_game_menu_container(update_scroll=False)
+            
+            
             self.screen.blit(self.background, (0, 0))
         
             #Redraw menu
-            menu_size = self.screen_menu_background.get_size()
             location = list(self.menu_location)
             location[0] += self.scroll_width // 2
             self.screen.blit(self.screen_menu_holder, location)
-            pygame.display.flip()
 
     def _mouse_click(self, i=0):
     
