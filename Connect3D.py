@@ -704,19 +704,21 @@ class ArtificialIntelligence(object):
         
         return matches
     
-    def points_nearneighbour(self, player_range, extensive_look=True):
+    def points_nearneighbour(self, player_range):
         """Look two moves ahead to detect if someone could get a point.
         Uses the check_for_n_minus_one function from within a loop.
         
         Will return 1 as the second parameter if it has looked up more than a single move.
         """
         
-        #Try initial check
+        #Initial check
+        initial_match = self.points_immediateneighbour(player_range=player_range)
+        match_cells = []
         
-        match = self.points_immediateneighbour(player_range=player_range)
-        if match and not extensive_look:
-                return match, True
-        near = bool(match)
+        #Make list of all cells so far to avoid duplicates
+        for k, v in initial_match.iteritems():
+            match_cells += v
+        match_cells = set(match_cells)
             
         #For every grid cell, substitute a player into it, then do the check again
         grid = bytearray(self.game.core.grid)
@@ -729,14 +731,11 @@ class ArtificialIntelligence(object):
                     match = self.points_immediateneighbour(player_range=player_range, grid=grid)
                     if match:
                         for k, v in match.iteritems():
-                            matches[k] += v
+                            matches[k] += [cell for cell in v if cell not in match_cells or v.count(cell) > 1]
                             
                 grid[i] = old_value
         
-        if matches:
-            return matches, near
-            
-        return defaultdict(list), False
+        return initial_match, matches
         
 
     def calculate_move(self, player, difficulty=None, _range=None):
@@ -770,111 +769,103 @@ class ArtificialIntelligence(object):
         ai_text = self.game._ai_text.append
         
         #Skip the first few moves since they need the most calculations
-        if total_moves >= (self.game.core.size - 2) * len(_range):
+        if total_moves >= (self.game.core.size - 2) * len(_range) or True:
             
             #Calculate move
-            move_points, is_near = self.points_nearneighbour(player_range=_range, extensive_look=extensive_look)
-            ai_text('Urgent: {}'.format(is_near))
+            close_matches, far_matches = self.points_nearneighbour(player_range=_range)#, extensive_look=extensive_look)
+            ai_text('Urgent: {}'.format(bool(close_matches)))
+            move_type = None #1 for blocking 2 for gaining
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
-            if is_near:
-                chance_ignore /= chance_ignore_offset
-                chance_ignore = pow(chance_ignore, pow(total_moves / self.game.core._size_cubed, 0.4))
+            chance_ignore_near = 0
+            if close_matches:
+                chance_ignore_near = pow(chance_ignore / chance_ignore_offset, 
+                                         pow(total_moves / self.game.core._size_cubed, 0.4))
             
             
             #Chance of things happening
-            chance_notice_basic = random.uniform(0, 100) > chance_ignore
+            chance_notice_basic = random.uniform(0, 100) > chance_ignore_near
             chance_notice_advanced = min(random.uniform(0, 100), random.uniform(0, 100)) > chance_ignore
-            chance_new_tactic = random.uniform(0, 100) < chance_tactic
             
+            #Count occurances, set overall total to [0]
+            move_count_player = defaultdict(dict)
+            move_count_player[0] = defaultdict(int)
+            move_count_advanced = defaultdict(list)
+            for k, v in far_matches.iteritems():
+                if k not in move_count_player:
+                    move_count_player[k] = defaultdict(int)
+                for i in v:
+                    move_count_player[0][i] += 1
+                    move_count_player[k][i] += 1
+                for k2, v2 in move_count_player[k].iteritems():
+                    if v2 > 1:
+                        move_count_advanced[k] += [k2] * (v2 - 1)
             
-            #Set which order to do things in
-            #OOP of 1 is block first then gain
-            order_of_importance = 1 if (is_near or chance_notice_advanced) else -1
+            advanced_move = any(v > 1 for k, v in move_count_player[0].iteritems())
+            
+            #First try block an enemy advanced move, then do own
+            #Then do the move that would block an enemy and gain a point at the same time
+            if advanced_move and chance_notice_advanced:
+                next_moves_total = move_count_advanced[0]
+                next_moves_player = move_count_advanced[player]
+                del move_count_advanced[player]
+                del move_count_advanced[0]
                 
-            #Get max values
-            max_points = {}
-            for k, v in move_points.iteritems():
-                max_length = Counter(v).most_common(1)[0][1]
-                max_points[k] = ([i for i in set(v) if v.count(i) == max_length], max_length)
-            
-            #Get max score
-            max_score = {}
-            for k, v in self.game.core.score.iteritems():
-                if k != player:
-                    max_score[k] = v
-            max_score = get_max_keys(max_score)
-            
-            #Set to highest duplicates
-            enemy = None
-            if chance_notice_advanced:
+                #Enemy moves
+                for k, v in move_count_advanced.iteritems():
+                    if k:
+                        next_moves = move_count_advanced[k]
+                        self.game._ai_state = 'Forward Thinking (Blocking Opposition)'
+                        move_type = 1
                 
-                highest_points = 0
-                highest_enemy = defaultdict(list)
-                for k, v in max_points.iteritems():
-                    if k != player:
-                        if v[1] >= highest_points:
-                            highest_enemy[k] += v[0]
-                            highest_points = v[1]
-                            
-                highest_score = get_max_keys({k: len(v) for k, v in highest_enemy.iteritems()})
-                try:
-                    enemy = (highest_score)
-                except IndexError:
-                    pass
-            
-            #Set to highest score
-            if max_score and enemy is None:
-                enemy = max_score
-            
-            #Set to random player
-            else:
-                enemy = list(_range)
-                del enemy[player - 1]
-            
-            #Set order
-            ai_text('Changed priorities: {}'.format(chance_new_tactic))
-            if chance_new_tactic:
-                order_of_importance = random.choice((-1, 1))
-            order_player = [random.choice(enemy), player][::order_of_importance]
-            order_text = ['Blocking opposing player', 'Gaining points'][::order_of_importance]
-            
-            
-            #Predict if other player is trying to trick the AI
-            #(or try trick the player if the setup is right)
-            #Quite an advanced tactic so chance of not noticing is increased
-            if chance_notice_advanced:
-                for i in (1, 0):
-                    if order_player[i] in max_points and max_points[order_player[i]][1] > 1:
-                        next_moves = max_points[order_player[i]][0]
-                        self.game._ai_state = 'Forward thinking ({})'.format(order_text[i])
-            
-            #Make a move based on the current points in the grid
-            if move_points and chance_notice_basic and (not next_moves or is_near):
-                for i in (1, 0):
-                    if move_points[order_player[i]]:
-                        next_moves = move_points[order_player[i]]
-                        self.game._ai_state = order_text[i]
+                #Own moves
+                if next_moves_player:
+                    if not next_moves or random.uniform(0, 100) < chance_tactic:
+                        next_moves = next_moves_player
+                        self.game._ai_state = 'Forward Thinking (Gaining Points)'
+                        move_type = 2
                     
-            #Make a random move determined by number of possible points that can be gained
-            elif not self.game._ai_state:
-                if not chance_notice_basic:
-                    ai_text("AI didn't notice something.")
-                self.game._ai_state = False
+                #Leftover moves
+                if next_moves_total and not next_moves:
+                    next_moves = next_moves_player
+                    self.game._ai_state = 'Forward Thinking'
             
+            
+            #Check for any n-1 points
+            #Block enemy first then gain points
+            change_tactic = random.uniform(0, 100) < chance_tactic
+            if close_matches and chance_notice_basic:
+            
+                already_moved = bool(next_moves)
+                if close_matches[player]:
+                    next_moves = close_matches[player]
+                    self.game._ai_state = 'Gaining Points'
+            
+                enemy_moves = []
+                for k, v in close_matches.iteritems():
+                    if k != player:
+                        enemy_moves += v
+                if enemy_moves:
+                    if (already_moved and move_type == 2) or (not already_moved and (not change_tactic or not next_moves)):
+                        next_moves = enemy_moves
+                        self.game._ai_state = 'Blocking Opposition'
+                        
+            elif not self.game._ai_state:
+                if not chance_notice_basic and not chance_notice_advanced:
+                    ai_text("AI missed something.")
+                self.game._ai_state = False
+                
+                
         #Make a semi random placement
         if not self.game._ai_state:
             if not chance_ignore and random.uniform(0, 100) > chance_ignore:
                 next_moves = self.points_bestcell(player)
                 self.game._ai_state = 'Predictive placement'
-            else:
-                self.game._ai_state = 'Random placement'
             
         #Make a totally random move
         if not next_moves:
             next_moves = [i for i in self.game.core._range_lg if not self.game.core.grid[i]]
-            if self.game._ai_state is None:
-                self.game._ai_state = 'Struggling'
+            self.game._ai_state = 'Random placement'
                 
         ai_text('AI Objective: {}.'.format(self.game._ai_state))
         n = random.choice(next_moves)
@@ -888,6 +879,7 @@ class ArtificialIntelligence(object):
         
         #print state, self.game._ai_text
         self.game._ai_running = False
+        print self.game._ai_state
         return self.game._ai_move
         
 
@@ -1070,7 +1062,6 @@ class GameCore(object):
             edited = False
             padding = int(pow(90 - angle, 0.75) - 15)
             
-            #length = 2000
             self.draw = DrawData(self.game.core, length, angle, padding, offset)
             
             height = self.draw.chunk_height * self.game.core.size
@@ -1252,7 +1243,7 @@ class GameCore(object):
         except AttributeError:
             time_left = None
         
-        if time_left is not None:
+        if time_left is not None and self.timer_enabled:
             time_left = time_left // self.TICKS + 1
             message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
             font = self.font_sm.render(message, 1, BLACK)
@@ -1379,7 +1370,7 @@ class GameCore(object):
                     message = 'Forced move!'
                 else:
                     message = 'Switched players!'
-                last_player = self.game.previous_player(self.game._player, self._player_count)
+                last_player = self.game.previous_player(self.game._player, self.game._player_count)
                 message += ' (Player {} took too long)'.format(last_player)
             elif flipped:
                 message = 'Grid was flipped!'
@@ -1570,7 +1561,7 @@ class GameCore(object):
             selected.append((background, foreground))
         
         turns = self.option_set['ShuffleTurns']
-        result = self._game_menu_option('Shuffle grid every {} turn{}?'.format(turns, '' if turns == 1 else 's'),
+        result = self._game_menu_option('Flip grid every {} turn{}?'.format(turns, '' if turns == 1 else 's'),
                                         options, selected, height_current,
                                         blit_list, rect_list)
         self.option_hover['ShuffleLevel'], height_current = result
@@ -1730,12 +1721,12 @@ class GameCore(object):
         
         font = self.font_lg_m.render(title, 1, BLACK)
         blit_list.append((font, (self.width_padding * 2, height_current)))
-        height_current += font.get_rect()[3]
+        height_current += font.get_rect()[3] + self.menu_padding
         
         if subtitle:
             font = self.font_md_m.render(subtitle, 1, BLACK)
             blit_list.append((font, (self.width_padding * 2, height_current)))
-            height_current += self.menu_padding * 5
+            height_current += self.menu_padding * 6
         
         return height_current
     
@@ -2000,7 +1991,7 @@ class GameCore(object):
     
         #Count ticks down
         force_end = False
-        if self.temp_data['MoveTimeLeft'] is not None:
+        if self.temp_data['MoveTimeLeft'] is not None and self.timer_enabled:
             old_time_left = self.temp_data['MoveTimeLeft']
             self.temp_data['MoveTimeLeft'] -= self.frame_data['GameTime'].ticks
             if old_time_left // self.TICKS != self.temp_data['MoveTimeLeft'] // self.TICKS:
