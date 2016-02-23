@@ -850,9 +850,11 @@ class ArtificialIntelligence(object):
             #Block enemy first then gain points
             change_tactic = random.uniform(0, 100) < chance_tactic
             if close_matches and chance_notice_basic:
+                print dict(close_matches)
             
                 already_moved = bool(next_moves)
-                if close_matches[player]:
+                
+                if close_matches[player] and (not chance_notice_advanced or not next_moves):
                     next_moves = close_matches[player]
                     self.game._ai_state = 'Gaining Points'
             
@@ -860,17 +862,46 @@ class ArtificialIntelligence(object):
                 for k, v in close_matches.iteritems():
                     if k != player:
                         enemy_moves += v
+                
+                if enemy_moves:
+                    #if ((already_moved and move_type == 2)
+                    #        or (not already_moved and next_moves and not change_tactic)
+                    #        or not next_moves):
+                    next_moves = enemy_moves
+                    self.game._ai_state = 'Blocking Opposition'
+                        
+                '''
                 if enemy_moves:
                     if (already_moved and move_type == 2) or (not already_moved and (not change_tactic or not next_moves)):
                         next_moves = enemy_moves
                         self.game._ai_state = 'Blocking Opposition'
-                        
-            elif not self.game._ai_state:
+                        '''
+            
+            #Check for any n-2 points
+            #Gain points first then block enemy
+            elif not next_moves:
+                next_moves = far_matches[player]
+                self.game._ai_state = 'Looking Ahead (Gaining Points)'
+                
+                enemy_moves = []
+                for k, v in far_matches.iteritems():
+                    if k != player:
+                        enemy_moves += v
+                
+                if enemy_moves:
+                    if not next_moves or change_tactic:
+                        next_moves = []
+                        for k, v in far_matches.iteritems():
+                            next_moves += v
+                        self.game._ai_state = 'Looking Ahead (Blocking Opposition)'
+                
+            
+            if not self.game._ai_state:
                 if not chance_notice_basic and not chance_notice_advanced:
                     ai_text("AI missed something.")
                 self.game._ai_state = False
                 
-                
+        
         #Make a semi random placement
         if not next_moves and not chance_ignore and random.uniform(0, 100) > chance_ignore:
             next_moves = self.points_bestcell(player)
@@ -893,7 +924,8 @@ class ArtificialIntelligence(object):
         
         #print state, self.game._ai_text
         self.game._ai_running = False
-        print self.game._ai_state
+        print player, self.game._ai_state, self.game.core.score, self.game._ai_move, next_moves[:10]
+        print 
         return self.game._ai_move
         
 
@@ -1166,6 +1198,7 @@ class GameCore(object):
         if self.state == 'Menu':
             transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
             transparent.fill(list(WHITE) + [200])
+            self.game_draw_background()
             self.background.blit(transparent, (0, 0))
         try:
             self.frame_data['Redraw'] = True
@@ -1490,283 +1523,366 @@ class GameCore(object):
         self.frame_data['Redraw'] = True
 
     def set_game_menu_instructions(self):
-        self.screen_menu_instructions = self.blit_stuff(0, [], [])
+        height_current = self.menu_padding
+        blit_list = []
+        rect_list = []
+        
+        #Render menu title
+        title_message = 'Instructions'
+        subtitle_message = ''
+        height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
+        
+        self.screen_menu_instructions = self.blit_stuff(height_current, blit_list, rect_list)
         
     def set_game_menu_background(self):
         height_current = self.menu_padding
         blit_list = []
         rect_list = []
         
-        instant_restart = all(not i for i in self.game.core.grid) and self.temp_data['PendingMove'] is None
-        show_advanced = bool(self.option_set['AdvancedOptions'])
-        
-        mouse_clicked = self._mouse_click()
-        
         #Render menu title
         title_message = 'Connect 3D'
         subtitle_message = 'By Peter Hunt'
         height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
         
-        #Add or remove players
-        if show_advanced:
-            temp_height = height_current - self.menu_font_size
-            options = ('Add', 'Remove')
+        
+        instant_restart = all(not i for i in self.game.core.grid) and self.temp_data['PendingMove'] is None
+        show_advanced = bool(self.option_set['AdvancedOptions'])
+        mouse_clicked = self._mouse_click()
+        
+        #Player settings
+        if True:
+        
+            #Add or remove players
+            if show_advanced:
+                temp_height = height_current - self.menu_font_size
+                options = ('Add', 'Remove')
+                option_len = len(options)
+                selected = []
+                
+                player_count = len(self.option_set['Players'])
+                too_high = player_count > len(self.colour_order) - 1
+                too_low = player_count < 3
+                for i in range(option_len):
+                    background = False
+                    foreground = i == self.option_hover['PlayerChange']
+                    if too_high and not i or too_low and i:
+                        foreground = False
+                        
+                    selected.append([background, foreground])
+                result = self._game_menu_option('',
+                                                options, selected, temp_height,
+                                                blit_list, rect_list, centre=True)
+                self.option_hover['PlayerChange'], temp_height = result
+                
+                #Update players and adjust shuffle count to players + 1
+                if self.option_hover['PlayerChange'] is not None and mouse_clicked:
+                    shuffle_turns = self.option_set['ShuffleTurns'] // len(self.option_set['Players'])
+                    changed_players = False
+                    
+                    if self.option_hover['PlayerChange'] and not too_low:
+                        del self.option_set['Players'][-1]
+                        del self.option_hover['Players'][-1]
+                        changed_players = True
+                        
+                    elif not self.option_hover['PlayerChange'] and not too_high:
+                        self.option_set['Players'].append(self.game.ai.DEFAULT_DIFFICULTY + 1)
+                        self.option_hover['Players'].append(None)
+                        changed_players = True
+                    
+                    if changed_players:
+                        if instant_restart:
+                            self.frame_data['Reload'] = True
+                    
+                    self.option_set['ShuffleTurns'] = shuffle_turns * len(self.option_set['Players']) + 1
+            
+            
+            #Configure players
+            options = ('Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme')
             option_len = len(options)
-            selected = []
             
-            player_count = len(self.option_set['Players'])
-            too_high = player_count > len(self.colour_order) - 1
-            too_low = player_count < 3
-            for i in range(option_len):
-                background = False
-                foreground = i == self.option_hover['PlayerChange']
-                if too_high and not i or too_low and i:
-                    foreground = False
-                    
-                selected.append([background, foreground])
-            result = self._game_menu_option('',
-                                            options, selected, temp_height,
-                                            blit_list, rect_list, centre=True)
-            self.option_hover['PlayerChange'], temp_height = result
+            for id, player in enumerate(self.option_set['Players']):
             
-            #Update players and adjust shuffle count to players + 1
-            if self.option_hover['PlayerChange'] is not None and mouse_clicked:
-                shuffle_turns = self.option_set['ShuffleTurns'] // len(self.option_set['Players'])
-                changed_players = False
                 
-                if self.option_hover['PlayerChange'] and not too_low:
-                    del self.option_set['Players'][-1]
-                    del self.option_hover['Players'][-1]
-                    changed_players = True
-                    
-                elif not self.option_hover['PlayerChange'] and not too_high:
-                    self.option_set['Players'].append(self.game.ai.DEFAULT_DIFFICULTY + 1)
-                    self.option_hover['Players'].append(None)
-                    changed_players = True
+                selected = []
+                dict_name = 'Player{}'.format(id + 1)
                 
-                if changed_players:
+                for i in range(option_len):
+                    if id >= self.game._player_count:
+                        background = i == self.game.ai.DEFAULT_DIFFICULTY + 1
+                    else:
+                        background = i == self.game.players[id]
+                    foreground = i in (self.option_set['Players'][id], self.option_hover['Players'][id])
+                    selected.append((background, foreground))
+                
+                result = self._game_menu_option('Player {}: '.format(id + 1),
+                                                options, selected, height_current,
+                                                blit_list, rect_list)
+                self.option_hover['Players'][id], height_current = result
+                height_current += self.menu_padding
+                
+                if self.option_hover['Players'][id] is not None and mouse_clicked:
+                    self.option_set['Players'][id] = self.option_hover['Players'][id]
                     if instant_restart:
                         self.frame_data['Reload'] = True
-                
-                self.option_set['ShuffleTurns'] = shuffle_turns * len(self.option_set['Players']) + 1
-        
-        
-        #Configure players
-        options = ('Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme')
-        option_len = len(options)
-        
-        for id, player in enumerate(self.option_set['Players']):
-        
-            
-            selected = []
-            dict_name = 'Player{}'.format(id + 1)
-            
-            for i in range(option_len):
-                if id >= self.game._player_count:
-                    background = i == self.game.ai.DEFAULT_DIFFICULTY + 1
-                else:
-                    background = i == self.game.players[id]
-                foreground = i in (self.option_set['Players'][id], self.option_hover['Players'][id])
-                selected.append((background, foreground))
-            
-            result = self._game_menu_option('Player {}: '.format(id + 1),
-                                            options, selected, height_current,
-                                            blit_list, rect_list)
-            self.option_hover['Players'][id], height_current = result
-            height_current += self.menu_padding
-            
-            if self.option_hover['Players'][id] is not None and mouse_clicked:
-                self.option_set['Players'][id] = self.option_hover['Players'][id]
-                if instant_restart:
-                    self.frame_data['Reload'] = True
         
         
         height_current += self.menu_padding * 2
-            
-        #Shuffle options
-        options = ('Mirror/Rotate', 'Mirror', 'No')
-        option_len = len(options)
-        selected = []
         
-        for i in range(option_len):
-            background = i == 2 - self.game.core.shuffle_level
-            foreground = i in (2 - self.option_set['ShuffleLevel'], self.option_hover['ShuffleLevel'])
-            selected.append((background, foreground))
-        
-        turns = self.option_set['ShuffleTurns']
-        result = self._game_menu_option('Flip grid every {} turn{}?'.format(turns, '' if turns == 1 else 's'),
-                                        options, selected, height_current,
-                                        blit_list, rect_list)
-        self.option_hover['ShuffleLevel'], height_current = result
-        
-        if self.option_hover['ShuffleLevel'] is not None and mouse_clicked:
-            self.option_set['ShuffleLevel'] = 2 - self.option_hover['ShuffleLevel']
-            if instant_restart:
-                self.frame_data['Reload'] = True
-        height_current += self.menu_padding
-        
-        
-        #Increase or decrease shuffle count
+        #End early option
         if show_advanced:
-            options = ('Increase', 'Decrease')
+            options = ('Yes', 'No')
             option_len = len(options)
             selected = []
             
-            too_low = self.option_set['ShuffleTurns'] <= len(self.option_set['Players']) - 1
             for i in range(option_len):
-                background = False
-                foreground = i == self.option_hover['ShuffleTurns']
-                if too_low and i:
-                    foreground = False
-                selected.append((background, foreground))
+                background = i == (not self.option_set['EndEarly'])
+                foreground = i in (not self.option_set['EndEarly'], self.option_hover['EndEarly'])
+                selected.append([background, foreground])
                 
-            result = self._game_menu_option('',
+            result = self._game_menu_option('End when no rows are left?',
                                             options, selected, height_current,
-                                            blit_list, rect_list, centre=True)
-            self.option_hover['ShuffleTurns'], height_current = result
+                                            blit_list, rect_list)
+            self.option_hover['EndEarly'], height_current = result
             
-            if self.option_hover['ShuffleTurns'] is not None and mouse_clicked:
-                if not (too_low and self.option_hover['ShuffleTurns']):
-                
-                    num_players = len(self.option_set['Players'])
-                    if self.option_set['ShuffleTurns'] == 1:
-                        self.option_set['ShuffleTurns'] += num_players
-                    else:
-                        self.option_set['ShuffleTurns'] += num_players * (1 - self.option_hover['ShuffleTurns'] * 2)
-                        
-                else:
-                    self.option_set['ShuffleTurns'] = 1
-                    
+            if self.option_hover['EndEarly'] is not None and mouse_clicked:
+                self.option_set['EndEarly'] = not self.option_hover['EndEarly']
+            height_current += self.menu_padding
+        
+         
+        #Shuffle options
+        if True:
+            options = ('Mirror/Rotate', 'Mirror', 'No')
+            option_len = len(options)
+            selected = []
+            
+            for i in range(option_len):
+                background = i == 2 - self.game.core.shuffle_level
+                foreground = i in (2 - self.option_set['ShuffleLevel'], self.option_hover['ShuffleLevel'])
+                selected.append((background, foreground))
+            
+            turns = self.option_set['ShuffleTurns']
+            result = self._game_menu_option('Flip grid every {} turn{}?'.format(turns, '' if turns == 1 else 's'),
+                                            options, selected, height_current,
+                                            blit_list, rect_list)
+            self.option_hover['ShuffleLevel'], height_current = result
+            
+            if self.option_hover['ShuffleLevel'] is not None and mouse_clicked:
+                self.option_set['ShuffleLevel'] = 2 - self.option_hover['ShuffleLevel']
                 if instant_restart:
                     self.frame_data['Reload'] = True
             height_current += self.menu_padding
+            
+            
+            #Increase or decrease shuffle count
+            if show_advanced:
+                options = ('Increase', 'Decrease')
+                option_len = len(options)
+                selected = []
+                
+                too_low = self.option_set['ShuffleTurns'] <= len(self.option_set['Players']) - 1
+                for i in range(option_len):
+                    background = False
+                    foreground = i == self.option_hover['ShuffleTurns']
+                    if too_low and i:
+                        foreground = False
+                    selected.append((background, foreground))
                     
+                result = self._game_menu_option('',
+                                                options, selected, height_current,
+                                                blit_list, rect_list, centre=True)
+                self.option_hover['ShuffleTurns'], height_current = result
+                
+                if self.option_hover['ShuffleTurns'] is not None and mouse_clicked:
+                    if not (too_low and self.option_hover['ShuffleTurns']):
+                    
+                        num_players = len(self.option_set['Players'])
+                        if self.option_set['ShuffleTurns'] == 1:
+                            self.option_set['ShuffleTurns'] += num_players
+                        else:
+                            self.option_set['ShuffleTurns'] += num_players * (1 - self.option_hover['ShuffleTurns'] * 2)
+                            
+                    else:
+                        self.option_set['ShuffleTurns'] = 1
+                        
+                    if instant_restart:
+                        self.frame_data['Reload'] = True
+                height_current += self.menu_padding
+                        
         height_current += self.menu_padding * 2
                   
 
         #Time limit options
-        options = ('Yes', 'No')
-        option_len = len(options)
-        selected = []
-        
-        for i in range(option_len):
-            background = i == (not self.timer_enabled)
-            foreground = i in (not self.timer_enabled, self.option_hover['TimeEnabled'])
-            selected.append([background, foreground])
-            
-        result = self._game_menu_option('Use a turn time limit?',
-                                        options, selected, height_current,
-                                        blit_list, rect_list)
-        self.option_hover['TimeEnabled'], height_current = result
-        
-        if self.option_hover['TimeEnabled'] is not None and mouse_clicked:
-            self.timer_enabled = not self.option_hover['TimeEnabled']
-        height_current += self.menu_padding
-            
-            
-        #Ask about time options
-        if self.timer_enabled and show_advanced:
-            options = ('Increase', 'Decrease')
+        if True:
+            options = ('Yes', 'No')
             option_len = len(options)
             selected = []
             
-            too_low = self.timer_count <= 10
             for i in range(option_len):
-                background = False
-                foreground = i == self.option_hover['TimeChange']
-                if too_low:
-                    foreground = False
+                background = i == (not self.timer_enabled)
+                foreground = i in (not self.timer_enabled, self.option_hover['TimeEnabled'])
                 selected.append([background, foreground])
                 
-            timer = self.TIMER_DEFAULT if not self.timer_count else self.timer_count
-            result = self._game_menu_option('Limited to {} seconds.'.format(timer),
+            result = self._game_menu_option('Use a turn time limit?',
                                             options, selected, height_current,
                                             blit_list, rect_list)
-            self.option_hover['TimeChange'], height_current = result
+            self.option_hover['TimeEnabled'], height_current = result
             
-            #If clicked and held, only run once to stop an increment every frame
-            if self.option_hover['TimeChange'] is not None and mouse_clicked and not too_low:
-                self.timer_count += 10 * (-1 if self.option_hover['TimeChange'] else 1)
-                if self.temp_data['MoveTimeLeft']:
-                    self.temp_data['MoveTimeLeft'] = self.TICKS * self.timer_count
+            if self.option_hover['TimeEnabled'] is not None and mouse_clicked:
+                self.timer_enabled = not self.option_hover['TimeEnabled']
+            height_current += self.menu_padding
+                
+                
+            #Ask about time options
+            if self.timer_enabled and show_advanced:
+                options = ('Increase', 'Decrease')
+                option_len = len(options)
+                selected = []
+                
+                too_low = self.timer_count <= 10
+                for i in range(option_len):
+                    background = False
+                    foreground = i == self.option_hover['TimeChange']
+                    if too_low:
+                        foreground = False
+                    selected.append([background, foreground])
+                    
+                timer = self.TIMER_DEFAULT if not self.timer_count else self.timer_count
+                result = self._game_menu_option('Limited to {} seconds.'.format(timer),
+                                                options, selected, height_current,
+                                                blit_list, rect_list)
+                self.option_hover['TimeChange'], height_current = result
+                
+                #If clicked and held, only run once to stop an increment every frame
+                if self.option_hover['TimeChange'] is not None and mouse_clicked and not too_low:
+                    self.timer_count += 10 * (-1 if self.option_hover['TimeChange'] else 1)
+                    if self.temp_data['MoveTimeLeft']:
+                        self.temp_data['MoveTimeLeft'] = self.TICKS * self.timer_count
             
         
         height_current += self.menu_padding * 2
         
             
         #Grid size options
-        if show_advanced:
+        if True:
+            if show_advanced:
+                height_current += self.menu_padding
+                options = ('Increase', 'Decrease')
+                option_len = len(options)
+                selected = []
+                
+                too_low = self.option_set['GridSize'] == 1
+                for i in range(option_len):
+                    background = False
+                    foreground = i == self.option_hover['GridSize']
+                    if too_low and i:
+                        foreground = False
+                    selected.append((background, foreground))
+                
+                result = self._game_menu_option('Grid size is {}.'.format(self.option_set['GridSize']),
+                                                options, selected, height_current,
+                                                blit_list, rect_list)
+                self.option_hover['GridSize'], height_current = result
+                if self.option_hover['GridSize'] is not None and mouse_clicked and not(too_low and self.option_hover['GridSize']):
+                    self.option_set['GridSize'] += 1 - self.option_hover['GridSize'] * 2
+                    if instant_restart:
+                        self.frame_data['Reload'] = True
+                height_current += self.menu_padding * 3
+            
+        
+        
+        #Menu buttons
+        if instant_restart:
+            result = self._game_menu_button('Start Game',
+                                            self.option_hover['OptionNewGame'], 
+                                            height_current, blit_list, rect_list,
+                                            align=2)
+            self.option_hover['OptionNewGame'], _ = result
+            if self.option_hover['OptionNewGame'] and mouse_clicked:
+                self.frame_data['Reload'] = True
+                self.state = 'Main'
+                
+            
+            result = self._game_menu_button('Instructions',
+                                            self.option_hover['OptionInstructions'], 
+                                            height_current, blit_list, rect_list,
+                                            align=0)
+            self.option_hover['OptionInstructions'], height_current = result
+            height_current += self.menu_padding * 2
+            if self.option_hover['OptionInstructions'] and mouse_clicked:
+                self.state = 'Instructions'
+            
+            result = self._game_menu_button('Quit To Desktop',
+                                            self.option_hover['OptionQuit'], 
+                                            height_current, blit_list, rect_list,
+                                            align=1)
+            self.option_hover['OptionQuit'], height_current = result
             height_current += self.menu_padding
-            options = ('Increase', 'Decrease')
+            if self.option_hover['OptionQuit'] and mouse_clicked:
+                self.end()
+        
+        else:
+            result = self._game_menu_button('Instructions',
+                                            self.option_hover['OptionInstructions'], 
+                                            height_current, blit_list, rect_list,
+                                            align=1)
+            self.option_hover['OptionInstructions'], height_current = result
+            height_current += self.menu_padding * 2
+            if self.option_hover['OptionInstructions'] and mouse_clicked:
+                self.state = 'Instructions'
+                
+            result = self._game_menu_option('Restart game to apply settings.',
+                                            [], [], height_current,
+                                            blit_list, rect_list, centre=True)
+            _, height_current = result
+            height_current += self.menu_padding * 2
+            
+            result = self._game_menu_button('Continue',
+                                            self.option_hover['OptionContinue'], 
+                                            height_current, blit_list, rect_list,
+                                            align=0)
+            self.option_hover['OptionContinue'], _ = result
+            if self.option_hover['OptionContinue'] and mouse_clicked:
+                self.state = 'Main'
+            
+            result = self._game_menu_button('New Game',
+                                            self.option_hover['OptionNewGame'], 
+                                            height_current, blit_list, rect_list,
+                                            align=2)
+            self.option_hover['OptionNewGame'], height_current = result
+            height_current += self.menu_padding * 2
+            if self.option_hover['OptionNewGame'] and mouse_clicked:
+                self.frame_data['Reload'] = True
+                self.state = 'Main'
+                
+                
+            result = self._game_menu_button('Quit To Desktop',
+                                            self.option_hover['OptionQuit'], 
+                                            height_current, blit_list, rect_list,
+                                            align=1)
+            self.option_hover['OptionQuit'], height_current = result
+            height_current += self.menu_padding
+            if self.option_hover['OptionQuit'] and mouse_clicked:
+                self.end()
+            
+        #Ask about advanced options
+        if True:
+            height_current += self.menu_padding
+            options = ('Yes', 'No')
             option_len = len(options)
             selected = []
             
-            too_low = self.option_set['GridSize'] == 1
             for i in range(option_len):
-                background = False
-                foreground = i == self.option_hover['GridSize']
-                if too_low and i:
-                    foreground = False
-                selected.append((background, foreground))
-            
-            result = self._game_menu_option('Grid size is {}.'.format(self.option_set['GridSize']),
+                background = i == (not show_advanced)
+                foreground = background or i == self.option_hover['AdvancedOptions']
+                selected.append([background, foreground])
+                
+            result = self._game_menu_option('Show advanced options?',
                                             options, selected, height_current,
-                                            blit_list, rect_list)
-            self.option_hover['GridSize'], height_current = result
-            if self.option_hover['GridSize'] is not None and mouse_clicked and not(too_low and self.option_hover['GridSize']):
-                self.option_set['GridSize'] += 1 - self.option_hover['GridSize'] * 2
-                if instant_restart:
-                    self.frame_data['Reload'] = True
-            height_current += self.menu_padding * 3
+                                            blit_list, rect_list, centre=True)
+            self.option_hover['AdvancedOptions'], height_current = result
             
-        
-        #Ask about advanced options
-        options = ('Yes', 'No')
-        option_len = len(options)
-        selected = []
-        
-        for i in range(option_len):
-            background = i == (not show_advanced)
-            foreground = background or i == self.option_hover['AdvancedOptions']
-            selected.append([background, foreground])
-            
-        result = self._game_menu_option('Show advanced options?',
-                                        options, selected, height_current,
-                                        blit_list, rect_list)
-        self.option_hover['AdvancedOptions'], height_current = result
-        
-        if self.option_hover['AdvancedOptions'] is not None and mouse_clicked:
-            self.option_set['AdvancedOptions'] = not self.option_hover['AdvancedOptions']
-        height_current += self.menu_padding * 3
-        
-        
-        result = self._game_menu_button('Start Game',
-                                        self.option_hover['OptionNewGame'], 
-                                        height_current, blit_list, rect_list,
-                                        align=0)
-        self.option_hover['OptionNewGame'], _ = result
-        if self.option_hover['OptionNewGame'] and mouse_clicked:
-            self.frame_data['Reload'] = True
-            self.state = 'Main'
-            
-        
-        result = self._game_menu_button('Instructions',
-                                        self.option_hover['OptionInstructions'], 
-                                        height_current, blit_list, rect_list,
-                                        align=2)
-        self.option_hover['OptionInstructions'], height_current = result
-        height_current += self.menu_padding * 2
-        if self.option_hover['OptionInstructions'] and mouse_clicked:
-            self.state = 'Instructions'
-        
-        result = self._game_menu_button('Quit To Desktop',
-                                        self.option_hover['OptionQuit'], 
-                                        height_current, blit_list, rect_list,
-                                        align=1)
-        self.option_hover['OptionQuit'], height_current = result
-        if self.option_hover['OptionQuit'] and mouse_clicked:
-            self.end()
-        height_current += self.menu_padding
+            if self.option_hover['AdvancedOptions'] is not None and mouse_clicked:
+                self.option_set['AdvancedOptions'] = not self.option_hover['AdvancedOptions']
         
         self.screen_menu_background = self.blit_stuff(height_current, blit_list, rect_list)
     
@@ -1835,20 +1951,22 @@ class GameCore(object):
     
     def _game_menu_option(self, message, options, selected, height_current, blit_list, rect_list, centre=False):
         padding = 2
-    
+        
         font = self.font_md_m.render('{} '.format(message), 1, BLACK)
         start_size = font.get_rect()[2:]
-        if message:
-            start_size[0] += 5
-            blit_list.append((font, (self.width_padding * 2, height_current)))
-        
         fonts = [self.font_md_m.render(option, 1, BLACK) for option in options]
         sizes = [option.get_rect()[2:] for option in fonts]
         
         offset = 0
         if centre:
-            size_sum = sum(i[0] + 2 for i in sizes)
+            size_sum = sum(i[0] + 2 for i in sizes) + start_size[0]
             offset = (self.menu_width - size_sum - self.scroll_width) // 2
+    
+        if message:
+            start_size[0] += 2
+            blit_list.append((font, (self.width_padding * 2 + offset, height_current)))
+        
+        
         
         #Calculate square sizes
         square_list = []
@@ -1885,18 +2003,19 @@ class GameCore(object):
             rect_list.append([rect_colour, square])
     
         selected_block = None
-        try:
-            x, y = self.frame_data['MousePos']
-        except (AttributeError, KeyError):
-            pass
-        else:
-            x -= self.menu_location[0] + self.scroll_width // 2
-            y -= self.menu_location[1] + self.scroll_offset
-            for i, square in enumerate(square_list):
-                x_selected = square[0] < x < square[0] + square[2]
-                y_selected = square[1] < y < square[1] + square[3]
-                if x_selected and y_selected:
-                    selected_block = i
+        if options:
+            try:
+                x, y = self.frame_data['MousePos']
+            except (AttributeError, KeyError):
+                pass
+            else:
+                x -= self.menu_location[0] + self.scroll_width // 2
+                y -= self.menu_location[1] + self.scroll_offset
+                for i, square in enumerate(square_list):
+                    x_selected = square[0] < x < square[0] + square[2]
+                    y_selected = square[1] < y < square[1] + square[3]
+                    if x_selected and y_selected:
+                        selected_block = i
         
         height_current += start_size[1]
         return (selected_block, height_current)
@@ -1959,13 +2078,15 @@ class GameCore(object):
     
     def update_settings(self):
     
-        #Save if advanced options is enabled or not
+        #Save things that should persist after reset
         try:
             advanced_options = self.option_set['AdvancedOptions']
             scroll_position = self.option_set['Scroll']
+            end_early = self.option_set['EndEarly']
         except AttributeError:
             advanced_options = None
             scroll_position = 0
+            end_early = True
         
         self.option_set = {'Scroll': None,
                            'ShuffleLevel': None,
@@ -1976,13 +2097,16 @@ class GameCore(object):
                            'Players': [None for _ in self.game._range_players],
                            'GridSize': None,
                            'ShuffleTurns': None,
+                           'EndEarly': None,
                            'OptionNewGame': None,
                            'OptionInstructions': None,
                            'OptionAbout': None,
                            'OptionBack': None,
-                           'OptionQuit': None}
+                           'OptionQuit': None,
+                           'OptionContinue': None}
         self.option_hover = dict(self.option_set)
         
+        self.option_set['EndEarly'] = end_early
         self.option_set['AdvancedOptions'] = advanced_options
         self.option_set['Scroll'] = scroll_position
         self.option_set['ShuffleLevel'] = self.game.core.shuffle_level
@@ -2072,7 +2196,7 @@ class GameCore(object):
                             elif self.state == 'Menu':
                                 self.state = 'Main'
                             elif self.state == 'Instructions':
-                                self.state = 'Main'
+                                self.state = 'Menu'
                             
                             self.update_state()
                     
@@ -2260,7 +2384,7 @@ class GameCore(object):
         
             self.set_game_title()
             self.frame_data['Redraw'] = True
-            self.temp_data['Winner'] = self.game.check_game_end()
+            self.temp_data['Winner'] = self.game.check_game_end(self.option_set['EndEarly'])
         
         '''
         #Copy game state to clipboard
