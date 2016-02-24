@@ -990,7 +990,7 @@ class DrawData(object):
         self.y_offset = self.size_y / self.core.size
         self.chunk_height = self.size_y * 2 + self.padding
         
-        self.centre = (self.chunk_height / 2) * self.core.size - self.padding / 2
+        self.centre = (self.chunk_height // 2) * self.core.size - self.padding / 2
         self.size_x_sm = self.size_x / self.core.size
         self.size_y_sm = self.size_y / self.core.size
         
@@ -1022,7 +1022,7 @@ class DrawData(object):
                                   (self.offset[0] - self.size_x, top_height)),
                                  ((self.offset[0], top_height + self.size_y),
                                   (self.offset[0], bottom_height + self.size_y))]
-                                  
+        
         bottom_height = self.offset[1] + self.centre - self.size_y
         top_height = self.offset[1] + self.centre - self.size_y * 2
         for i in self.core._range_sm:
@@ -1118,10 +1118,11 @@ class GameCore(object):
             height = draw.chunk_height * C3D.size
             width = draw.size_x * 2
             
-            too_small = height < y * (1 if not height_limits else height_limits[0])
-            too_tall = height > y * (1 if not height_limits else height_limits[1])
-            too_thin = width < x * (1 if not width_limits else width_limits[0])
-            too_wide = width > x * (1 if not width_limits else width_limits[1])
+            n = 0.95
+            too_small = height < y * (n if not height_limits else height_limits[0])
+            too_tall = height > y * (n if not height_limits else height_limits[1])
+            too_thin = width < x * (n if not width_limits else width_limits[0])
+            too_wide = width > x * (n if not width_limits else width_limits[1])
                     
             if too_wide or too_small and not too_thin:
                 if angle < angle_limits[1]:
@@ -1146,9 +1147,11 @@ class GameCore(object):
                 edited = True
                 
             if not edited:
+                #print draw.line_coordinates
                 return draw
+        
     
-    def resize_screen(self):
+    def resize_screen(self, menu_width_multiplier=21.5):
         """Recalculate anything to do with size when a new width or height is set."""
         self.HEIGHT = max(200, self.HEIGHT)
         self.mid_point = [self.WIDTH // 2, self.HEIGHT // 2]
@@ -1162,9 +1165,9 @@ class GameCore(object):
                                           start_offset=(0, self.HEIGHT//25))
                 
         height_multiply = min(1, 1.5 * self.WIDTH / self.HEIGHT)
-        height_lg = int(self.HEIGHT / 28 * height_multiply)
-        height_md = int(self.HEIGHT / 40 * height_multiply)
-        height_sm = int(self.HEIGHT / 45 * height_multiply)
+        height_lg = int(round(self.HEIGHT / 28 * height_multiply))
+        height_md = int(round(self.HEIGHT / 40 * height_multiply))
+        height_sm = int(round(self.HEIGHT / 46 * height_multiply))
         
         #Set font sizes
         self.text_padding = max(1, self.HEIGHT // 96) * height_multiply
@@ -1176,20 +1179,21 @@ class GameCore(object):
         
         #Menu sizes
         max_width = min(640, self.WIDTH) #Width will not affect menu past this point
+        self.menu_width = max(height_md, int(round(max_width / 26))) * menu_width_multiplier
         
-        height_lg_m = int(round(max_width / 20))
-        height_md_m = int(round(max_width / 26))
-        height_sm_m = int(round(max_width / 29))
-        self.font_lg_m = pygame.font.Font(self.font_file, max(height_lg, height_lg_m))
-        self.font_md_m = pygame.font.Font(self.font_file, max(height_md, height_md_m))
-        self.font_sm_m = pygame.font.Font(self.font_file, max(height_sm, height_sm_m))
+        height_lg_m = int(round(self.menu_width / 15.5))
+        height_md_m = int(round(self.menu_width / 21.5))
+        height_sm_m = int(round(self.menu_width / 25))
+        self.font_lg_m = pygame.font.Font(self.font_file, height_lg_m)
+        self.font_md_m = pygame.font.Font(self.font_file, height_md_m)
+        self.font_sm_m = pygame.font.Font(self.font_file, height_sm_m)
         self.menu_font_size = self.font_lg_m.render('', 1, BLACK).get_size()[1]
         
         self.score_width = None
         self.menu_padding = min(10, max(int(self.text_padding), max_width // 64))
         
+        
         font_md_size = self.font_md_m.render('', 1, BLACK).get_rect()[3]
-        self.menu_width = font_md_size * 20 #WARNING: hardcoded - change for different menu width
         self.menu_height_offset = self.HEIGHT // 18 * height_multiply
         self.scroll_width = self.scroll_padding = self.menu_width // 26
         
@@ -1200,24 +1204,26 @@ class GameCore(object):
         except AttributeError:
             pass
         else:
-            grid_data = [base64.b64encode(zlib.compress(str(bytearray(map(int, list(i)))))) for i in [
-            '0000000000000000000011110000000000000000000000000000000000000000',   #across
-            '0000000000000000010001000100010000000000000000000000000000000000',   #across
-            '0000000000000000000100100100100000000000000000000000000000000000',   #diagonal flat
-            '0000000000000000100001000010000100000000000000000000000000000000',   #diagonal flat
-            '0000010000000000000001000000000000000100000000000000010000000000',   #down
-            '0000100000000000000001000000000000000010000000000000000100000000',   #diagonal down
-            '0000000100000000000000100000000000000100000000000000100000000000',   #diagonal down
-            '0100000000000000000001000000000000000000010000000000000000000100',   #diagonal down
-            '0000000000000100000000000100000000000100000000000100000000000000',   #diagonal down
-            '1000000000000000000001000000000000000000001000000000000000000001',   #corner to corner
-            '0000000000000001000000000010000000000100000000001000000000000000',   #corner to corner
-            '0001000000000000000000100000000000000000010000000000000000001000',   #corner to corner
-            '0000000000001000000000000100000000000010000000000001000000000000']   #corner to corner
-            ]
+            grid_data = [
+            '                    1111                                        ',   #across
+            '                 1   1   1   1                                  ',   #across
+            '                   1  1  1  1                                   ',   #diagonal flat
+            '                1    1    1    1                                ',   #diagonal flat
+            '     1               1               1               1          ',   #down
+            '    1                1                1                1        ',   #diagonal down
+            '       1              1              1              1           ',   #diagonal down
+            ' 1                   1                   1                   1  ',   #diagonal down
+            '             1           1           1           1              ',   #diagonal down
+            '1                    1                    1                    1',   #corner to corner
+            '               1          1          1          1               ',   #corner to corner
+            '   1                  1                  1                  1   ',   #corner to corner
+            '            1            1            1            1            ']   #corner to corner
+            grid_data = [map(int, list(i.replace(' ', '0'))) for i in grid_data]
+            grid_data = [base64.b64encode(zlib.compress(str(bytearray(i)))) for i in grid_data]
+            
             self.example_grid = []
-            width = self.menu_width / 2.5
-            height = width * 2
+            width = int(self.menu_width / 2.5)
+            height = int(width * 1.8)
             
             for i in grid_data:
                 C3D = Connect3D(4).load(i)
@@ -1235,7 +1241,6 @@ class GameCore(object):
         self.menu_location[0] = self.mid_point[0] - menu_size[0] // 2 - self.scroll_width // 2
         
         
-    
     def redraw(self):
         """Recalculate all surfaces and draw them to the screen."""
         self.set_grid_overlay()
@@ -1248,20 +1253,16 @@ class GameCore(object):
         """Calculations to be done when the state of the game is changed."""
         if new_state != -1:
             self.state = new_state
-            
-        if self.state == 'Menu':
-            try:
-                transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
-                transparent.fill(list(WHITE) + [200])
-                self.background.blit(transparent, (0, 0))
-                self.set_game_menu_background()
-                self.game_draw_background()
-            except AttributeError:
-                pass
-        elif self.state == 'Instructions':
+        try:
+            transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+            transparent.fill(list(WHITE) + [200])
+            self.background.blit(transparent, (0, 0))
+            self.set_game_menu_background()
             self.set_game_menu_instructions()
-        elif self.state == 'About':
             self.set_game_menu_about()
+            self.game_draw_background()
+        except AttributeError:
+            pass
         
         try:
             self.frame_data['Redraw'] = True
@@ -1347,6 +1348,13 @@ class GameCore(object):
               
         #Draw grid
         for line in draw.line_coordinates:
+            '''
+            line = list(line)
+            if not int(line[0][0]):
+                line[0] = 1, line[0][1]
+            if not int(line[1][0]):
+                line[1] = 1, line[1][1]
+                '''
             pygame.draw.aaline(surface,
                                BLACK, line[0], line[1], 1)
     
@@ -1618,9 +1626,59 @@ class GameCore(object):
         rect_list = []
         
         title_message = 'About'
-        subtitle_message = 'Version 1.1'
+        subtitle_message = ''
         height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
         
+        
+        text_chunks = [
+        'Version: {} (February 2016)'.format(VERSION),
+        'Website: http://peterhuntvfx.co.uk',
+        'Email: peterhuntvfx@yahoo.com',
+        ]
+        for message in text_chunks:
+            if not message:
+                height_current += self.menu_padding
+                continue
+            result = self._game_menu_option(message,
+                                            [], [], height_current,
+                                            blit_list, rect_list, 
+                                            font=self.font_md_m)
+            _, height_current = result
+        height_current += self.menu_padding
+        
+        
+        text_chunks = [
+        'If you have any questions or feedback please feel free',
+        'to get in touch via email.',
+        '',
+        '',
+        'This is a much more optimised version of the game with',
+        'a few extra features added and AI slightly tweaked. It ',
+        'has only been tested by me so far, so you may still find',
+        'a few bugs.'
+        
+        ]
+        for message in text_chunks:
+            if not message:
+                height_current += self.menu_padding
+                continue
+            result = self._game_menu_option(message,
+                                            [], [], height_current,
+                                            blit_list, rect_list, 
+                                            font=self.font_sm_m)
+            _, height_current = result
+            
+            
+        height_current += self.menu_padding * 2
+        result = self._game_menu_button('Back',
+                                        self.option_hover['OptionBack'], 
+                                        height_current, blit_list, rect_list,
+                                        align=1)
+        self.option_hover['OptionBack'], height_current = result
+        height_current += self.menu_padding * 2
+        if self.option_hover['OptionBack'] and mouse_clicked:
+            self.update_state('Instructions')
+            
         
         self.screen_menu_about = self.blit_stuff(height_current, blit_list, rect_list)
     
@@ -1649,6 +1707,7 @@ class GameCore(object):
                                             blit_list, rect_list, 
                                             font=self.font_sm_m)
             _, height_current = result
+        height_current += self.menu_padding
         
         
         options = ('Previous', 'Next')
@@ -1672,12 +1731,12 @@ class GameCore(object):
         height_current += self.menu_padding
         surface = self.example_grid[current_grid]
         grid_height = height_current
-        height_current += surface.get_size()[1]
+        height_current += surface.get_size()[1] + self.menu_padding
         
         
         
-        text_chunks = ['The grid will flip itself to stop things from becoming too',
-                       'easy.']
+        text_chunks = ["The grid will flip itself to stop things from becoming too",
+                       "easy."]
         for message in text_chunks:
             if not message:
                 height_current += self.menu_padding
@@ -1687,6 +1746,26 @@ class GameCore(object):
                                             blit_list, rect_list, 
                                             font=self.font_sm_m)
             _, height_current = result
+            
+            
+        height_current += self.menu_padding * 2
+        result = self._game_menu_button('Back',
+                                        self.option_hover['OptionBack'], 
+                                        height_current, blit_list, rect_list,
+                                        align=0)
+        self.option_hover['OptionBack'], _ = result
+        if self.option_hover['OptionBack'] and mouse_clicked:
+            self.update_state('Menu')
+            
+        
+        result = self._game_menu_button('About',
+                                        self.option_hover['OptionAbout'], 
+                                        height_current, blit_list, rect_list,
+                                        align=2)
+        self.option_hover['OptionAbout'], height_current = result
+        height_current += self.menu_padding * 2
+        if self.option_hover['OptionAbout'] and mouse_clicked:
+            self.update_state('About')
             
         
         self.screen_menu_instructions = self.blit_stuff(height_current, blit_list, rect_list)
@@ -1698,12 +1777,19 @@ class GameCore(object):
         rect_list = []
         
         #Render menu title
-        title_message = 'Connect 3D'
-        subtitle_message = 'By Peter Hunt'
+        if self.temp_data['Winner'] is None:
+            title_message = 'Connect 3D'
+            subtitle_message = 'By Peter Hunt'
+        else:
+            subtitle_message = 'Want to play again?'
+            if len(self.temp_data['Winner']) == 1:
+                title_message = 'Player {} was the winner!'.format(self.temp_data['Winner'].keys()[0])
+            else:
+                title_message = 'It was a draw!'
         height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
         
         
-        instant_restart = all(not i for i in self.game.core.grid) and self.temp_data['PendingMove'] is None
+        instant_restart = all(not i for i in self.game.core.grid) and self.temp_data['PendingMove'] is None and self.temp_data['Winner'] is None
         show_advanced = bool(self.option_set['AdvancedOptions'])
         mouse_clicked = self._mouse_click()
         
@@ -2312,7 +2398,7 @@ class GameCore(object):
             return
         
         #Adjust width and height to fit on screen
-        screen_height = pygame.display.Info().current_h * 0.85
+        screen_height = pygame.display.Info().current_h * 0.88
         self.height_ratio = self.WIDTH / self.HEIGHT
         self.HEIGHT = int(screen_height / 16) * 16
         self.WIDTH = int(self.HEIGHT * self.height_ratio)
@@ -2365,12 +2451,8 @@ class GameCore(object):
                         if event.key == pygame.K_ESCAPE:
                             if self.state == 'Main':
                                 self.update_state('Menu')
-                            elif self.state == 'Menu':
+                            else:
                                 self.update_state('Main')
-                            elif self.state == 'Instructions':
-                                self.update_state('Menu')
-                            elif self.state == 'About':
-                                self.update_state('Instructions')
                     
                     
                 #---MAIN LOOP START---#
@@ -2400,6 +2482,10 @@ class GameCore(object):
     
         mouse_click_l = self._mouse_click(0)
         mouse_click_r = self._mouse_click(2)
+        
+        if self.temp_data['Winner']:
+            self.update_state('Menu')
+            self.frame_data['Redraw'] = True
     
         #Count ticks down
         force_end = False
@@ -2465,11 +2551,11 @@ class GameCore(object):
                    self.set_game_time()
                     
                 #Mouse button clicked
-                if mouse_click_l:
+                if self.frame_data['MouseClick'][0]:
                     
                     #Player has just clicked
                     if self.temp_data['PendingMove'] is None:
-                        if mouse_block_id is not None and not self.game.core.grid[mouse_block_id]:
+                        if mouse_block_id is not None and not self.game.core.grid[mouse_block_id] and mouse_click_l:
                             self.temp_data['PendingMove'] = [mouse_block_id, 
                                                              self.frame_data['GameTime'].total_ticks + self.MOVE_WAIT, 
                                                              True, 
