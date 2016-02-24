@@ -8,6 +8,8 @@ import zlib
 import math
 import cPickle
 import time
+import json
+import urllib2
 try:
     import pygame
 except ImportError:
@@ -120,6 +122,16 @@ class GameTimeLoop(object):
         self.GTObject.ticks = ticks * (self.GTObject.ticks / self.GTObject.desired_ticks)
         self.GTObject.desired_ticks = ticks
         
+
+def format_text(x):
+    """Format text to remove invalid characters."""
+    left_bracket = ('[', '{')
+    right_bracket = (']', '}')
+    for i in left_bracket:
+        x = x.replace(i, '(')
+    for i in right_bracket:
+        x = x.replace(i, ')')
+    return x
              
              
 class ThreadHelper(Thread):
@@ -165,7 +177,11 @@ def join_list(x):
     """Convert nested lists into one single list."""
     return [j for i in x for j in i]
 
+    
+def round_up(x):
+    return int(x) + bool(x % 1)
 
+    
 class Connect3D(object):
     """Class for holding the game information.
     
@@ -778,7 +794,7 @@ class ArtificialIntelligence(object):
         self.calculations = 0
         next_moves = []
         
-        self.game._ai_text = []
+        self.game._ai_text = ['AI Objective: Calculating']
         self.game._ai_state = None
         self.game._ai_move = None
         ai_text = self.game._ai_text.append
@@ -787,9 +803,9 @@ class ArtificialIntelligence(object):
         if total_moves >= (self.game.core.size - 2) * len(_range) or True:
             
             #Calculate move
-            close_matches, far_matches = self.points_nearneighbour(player_range=_range)#, extensive_look=extensive_look)
+            close_matches, far_matches = self.points_nearneighbour(player_range=_range)
+            del self.game._ai_text[0]
             ai_text('Urgent: {}'.format(bool(close_matches)))
-            move_type = None #1 for blocking 2 for gaining
             
             #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
             chance_ignore_near = 0
@@ -797,7 +813,6 @@ class ArtificialIntelligence(object):
                 chance_ignore_near = pow(chance_ignore / chance_ignore_offset, 
                                          pow(total_moves / self.game.core._size_cubed, 0.25))
             
-            print chance_ignore, chance_ignore_near
             #Chance of things happening
             chance_notice_basic = random.uniform(0, 100) > chance_ignore_near
             chance_notice_far = random.uniform(0, 100) > chance_ignore
@@ -832,14 +847,12 @@ class ArtificialIntelligence(object):
                     if k:
                         next_moves = move_count_advanced[k]
                         self.game._ai_state = 'Forward Thinking (Blocking Opposition)'
-                        move_type = 1
                 
                 #Own moves
                 if next_moves_player:
                     if not next_moves or random.uniform(0, 100) < chance_tactic:
                         next_moves = next_moves_player
                         self.game._ai_state = 'Forward Thinking (Gaining Points)'
-                        move_type = 2
                     
                 #Leftover moves
                 if next_moves_total and not next_moves:
@@ -849,14 +862,14 @@ class ArtificialIntelligence(object):
             
             #Check for any n-1 points
             #Block enemy first then gain points
-            change_tactic = random.uniform(0, 100) < chance_tactic
             if close_matches and chance_notice_basic:
             
                 already_moved = bool(next_moves)
                 
-                if close_matches[player] and (not chance_notice_advanced or not next_moves):
-                    next_moves = close_matches[player]
-                    self.game._ai_state = 'Gaining Points'
+                if close_matches[player]:
+                    if not chance_notice_advanced or not next_moves or not extensive_look:
+                        next_moves = close_matches[player]
+                        self.game._ai_state = 'Gaining Points'
             
                 enemy_moves = []
                 for k, v in close_matches.iteritems():
@@ -864,18 +877,10 @@ class ArtificialIntelligence(object):
                         enemy_moves += v
                 
                 if enemy_moves:
-                    #if ((already_moved and move_type == 2)
-                    #        or (not already_moved and next_moves and not change_tactic)
-                    #        or not next_moves):
-                    next_moves = enemy_moves
-                    self.game._ai_state = 'Blocking Opposition'
-                        
-                '''
-                if enemy_moves:
-                    if (already_moved and move_type == 2) or (not already_moved and (not change_tactic or not next_moves)):
+                    if not next_moves or not random.uniform(0, 100) < chance_tactic:
                         next_moves = enemy_moves
                         self.game._ai_state = 'Blocking Opposition'
-                        '''
+                        
             
             #Check for any n-2 points
             #Gain points first then block enemy
@@ -889,7 +894,7 @@ class ArtificialIntelligence(object):
                         enemy_moves += v
                 
                 if enemy_moves:
-                    if not next_moves or change_tactic:
+                    if not next_moves or random.uniform(0, 100) < chance_tactic:
                         next_moves = []
                         for k, v in far_matches.iteritems():
                             next_moves += v
@@ -915,7 +920,10 @@ class ArtificialIntelligence(object):
         ai_text('AI Objective: {}.'.format(self.game._ai_state))
         n = random.choice(next_moves)
         
-        ai_text('Potential Moves: {}'.format(next_moves))
+        potential_moves = 'Potential Moves: {}'.format(next_moves)
+        if len(potential_moves) > 40:
+            potential_moves = potential_moves[:37] + '...'
+        ai_text(potential_moves)
         
         self.game._ai_move = random.choice(next_moves)
         
@@ -924,8 +932,7 @@ class ArtificialIntelligence(object):
         
         #print state, self.game._ai_text
         self.game._ai_running = False
-        print player, self.game._ai_state, self.game.core.score, self.game._ai_move, next_moves[:10]
-        print 
+        print player, self.game._ai_state
         return self.game._ai_move
         
 
@@ -1074,7 +1081,6 @@ class GameCore(object):
     HEIGHT = 960
     MOVE_WAIT = 60
     TIMER_DEFAULT = 200
-    MOVE_WAIT = 0
     
     def __init__(self, C3DGame):
         self.game = C3DGame
@@ -1152,7 +1158,7 @@ class GameCore(object):
                 return draw
         
     
-    def resize_screen(self, menu_width_multiplier=21.5):
+    def resize_screen(self, menu_width_multiplier=20.5):
         """Recalculate anything to do with size when a new width or height is set."""
         self.HEIGHT = max(200, self.HEIGHT)
         self.mid_point = [self.WIDTH // 2, self.HEIGHT // 2]
@@ -1247,25 +1253,27 @@ class GameCore(object):
         self.set_grid_overlay()
         self.set_game_title()
         self.game_draw_background()
+        self.set_surface_debug()
         self.screen.blit(self.background, (0, 0))
         self.update_state()
     
     def update_state(self, new_state=-1):
         """Calculations to be done when the state of the game is changed."""
+        if new_state is not False:
+            try:
+                self._last_state = self.state
+            except AttributeError:
+                self._last_state = None
+            if new_state != -1:
+                self.state = new_state
         try:
-            self._last_state = self.state
-        except AttributeError:
-            self._last_state = None
-        if new_state != -1:
-            self.state = new_state
-        try:
-            transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
-            transparent.fill(list(WHITE) + [200])
-            self.background.blit(transparent, (0, 0))
             self.set_game_menu_background()
             self.set_game_menu_instructions()
             self.set_game_menu_about()
             self.game_draw_background()
+            transparent = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+            transparent.fill(list(WHITE) + [200])
+            self.background.blit(transparent, (0, 0))
         except AttributeError:
             pass
         
@@ -1375,7 +1383,7 @@ class GameCore(object):
         """Renders the time remaining.
         This is separate from the rest of the menu due to it needing to be redrawn a lot.
         """
-        self.screen_time = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        self.surface_time_remaining = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         try:
             time_left = self.temp_data['MoveTimeLeft']
         except AttributeError:
@@ -1386,11 +1394,11 @@ class GameCore(object):
             message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
             font = self.font_sm.render(message, 1, BLACK)
             size = font.get_rect()[2:]
-            self.screen_time.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
+            self.surface_time_remaining.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
     
     def set_game_title(self):
         """Renders the display for the main game."""
-        self.screen_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        self.surface_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         
         try:
             winner = self.temp_data['Winner']
@@ -1424,7 +1432,7 @@ class GameCore(object):
             
         font = self.font_lg.render(message, 1, BLACK)
         main_size = font.get_rect()[2:]
-        self.screen_title.blit(font, ((self.WIDTH - main_size[0]) / 2, self.text_padding * 3))
+        self.surface_title.blit(font, ((self.WIDTH - main_size[0]) / 2, self.text_padding * 3))
         
         #Get two highest scores (or default to player 1 and 2)
         #If matching scores, get lowest player
@@ -1479,27 +1487,27 @@ class GameCore(object):
         #Score 1
         upper_font = self.font_md.render('Player {}'.format(player1), 1, BLACK, self.player_colours[player1 - 1])
         upper_size = upper_font.get_rect()[2:]
-        self.screen_title.blit(upper_font, (self.width_padding, self.text_padding))
+        self.surface_title.blit(upper_font, (self.width_padding, self.text_padding))
         
         current_height = self.text_padding + upper_size[1]
         for i in range(score1 // self.score_width + 1):
             points = self.score_width if (i + 1) * self.score_width <= score1 else score1 % self.score_width
             lower_font = self.font_lg.render(point_display * points, 1, BLACK)
             lower_size = lower_font.get_rect()[2:]
-            self.screen_title.blit(lower_font, (self.width_padding, current_height))
+            self.surface_title.blit(lower_font, (self.width_padding, current_height))
             current_height += lower_size[1] - self.text_padding
         
         #Score 2
         upper_font = self.font_md.render('Player {}'.format(player2), 1, BLACK, self.player_colours[player2 - 1])
         upper_size = upper_font.get_rect()[2:]
-        self.screen_title.blit(upper_font, (self.WIDTH - upper_size[0] - self.width_padding, self.text_padding))
+        self.surface_title.blit(upper_font, (self.WIDTH - upper_size[0] - self.width_padding, self.text_padding))
         
         current_height = self.text_padding + upper_size[1]
         for i in range(score2 // self.score_width + 1):
             points = self.score_width if (i + 1) * self.score_width <= score2 else score2 % self.score_width
             lower_font = self.font_lg.render(point_display * points, 1, BLACK)
             lower_size = lower_font.get_rect()[2:]
-            self.screen_title.blit(lower_font, (self.WIDTH - lower_size[0] - self.text_padding, current_height))
+            self.surface_title.blit(lower_font, (self.WIDTH - lower_size[0] - self.text_padding, current_height))
             current_height += lower_size[1] - self.text_padding
         
         #Status message
@@ -1515,7 +1523,7 @@ class GameCore(object):
                 message = 'Grid was flipped!'
             font = self.font_md.render(message, 1, (0, 0, 0))
             size = font.get_rect()[2:]
-            self.screen_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
+            self.surface_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
         
         
         self.set_game_time()  
@@ -2213,7 +2221,7 @@ class GameCore(object):
         offset = 0
         if centre:
             size_sum = sum(i[0] + 2 for i in sizes) + start_size[0]
-            offset = (self.menu_width - size_sum - self.scroll_width) // 2
+            offset = (self.menu_width - size_sum - self.scroll_width / 2) // 2
     
         if message:
             start_size[0] += 2
@@ -2328,10 +2336,7 @@ class GameCore(object):
                           'Flipped': False,
                           'Skipped': False,
                           'MoveTimeLeft': None}
-        #try:
-        #    self.set_game_title()
-        #except AttributeError:
-        #    pass
+        self.game_ended = False
     
     def update_settings(self):
     
@@ -2341,13 +2346,16 @@ class GameCore(object):
             scroll_position = self.option_set['Scroll']
             end_early = self.option_set['EndEarly']
             grid_hover = self.option_hover['GridSize']
+            debug = self.option_hover['Debug']
         except AttributeError:
             advanced_options = None
             scroll_position = 0
             end_early = True
             grid_hover = 0
+            debug = False
         
-        self.option_set = {'Scroll': None,
+        self.option_set = {'Debug': None,
+                           'Scroll': None,
                            'ShuffleLevel': None,
                            'TimeEnabled': None,
                            'TimeChange': None,
@@ -2367,6 +2375,7 @@ class GameCore(object):
         self.option_hover = dict(self.option_set)
         
         self.option_hover['GridSize'] = grid_hover
+        self.option_set['Debug'] = False
         self.option_set['OptionDirectionExample'] = 0
         self.option_set['EndEarly'] = end_early
         self.option_set['AdvancedOptions'] = advanced_options
@@ -2400,7 +2409,7 @@ class GameCore(object):
         
         #Adjust width and height to fit on screen
         screen_height = pygame.display.Info().current_h * 0.88
-        self.height_ratio = self.WIDTH / self.HEIGHT
+        self.height_ratio = 0.64
         self.HEIGHT = int(screen_height / 16) * 16
         self.WIDTH = int(self.HEIGHT * self.height_ratio)
         self.update_state('Menu')
@@ -2468,6 +2477,9 @@ class GameCore(object):
                 if not game_time.total_ticks % self.TICKS:
                     self.frame_data['Redraw'] = True
                 
+                self.option_set['Debug'] = True
+                self.set_surface_debug()
+                
                 if self.frame_data['Redraw']:
                     pygame.display.flip()
                     
@@ -2479,6 +2491,72 @@ class GameCore(object):
                     pygame.display.set_caption('{}'.format(game_time.fps))
                     
 
+    def set_surface_debug(self):
+        
+        if not self.option_set['Debug']:
+            return
+        try:
+            self.frame_data['MousePos']
+        except KeyError:
+            return
+    
+        self.surface_debug = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        
+        mouse_block_id = self.draw.game_to_block_index(*self.frame_data['MousePos'])
+        
+        if self.frame_data['GameTime'].fps is not None:
+            self.last_fps = self.frame_data['GameTime'].fps 
+        info = [' GRID:',
+                'Size: {}'.format(self.game.core.size),
+                'Length: {}'.format(int(self.draw.length)),
+                'Angle: {}'.format(self.draw.angle),
+                'Offset: {}'.format(map(int, self.draw.offset)),
+                ' MOUSE:',
+                'Coordinates: {}'.format(self.frame_data['MousePos']),
+                'Block ID: {}'.format(mouse_block_id),
+                ' PYGAME:',
+                'Redraw: {}'.format(self.frame_data['Redraw']),
+                'Ticks: {}'.format(self.frame_data['GameTime'].total_ticks),
+                'FPS: {}'.format(self.last_fps),
+                'Desired FPS: {}'.format(self.frame_data['GameTime']._temp_fps or self.frame_data['GameTime'].GTObject.desired_fps)
+                ]
+                
+                
+        fonts = [self.font_sm.render(format_text(i), 1, BLACK) for i in info]
+        sizes = [i.get_rect()[2:] for i in fonts]
+        for i in range(len(info)):
+            message_height = self.HEIGHT - sum(j[1] for j in sizes[i:])
+            self.surface_debug.blit(fonts[i], (0, message_height))
+        
+        
+        #Format the AI text output
+        if self.game._ai_text:
+            '''
+            max_len = 50
+            message = [format_text(i[n * max_len:(n + 1) * max_len])
+                       for i in self.game._ai_text
+                       for n in range(round_up(len(i) / max_len))]
+                       '''
+            
+            fonts = [self.font_sm.render(format_text(i), 1, BLACK) for i in self.game._ai_text]
+            sizes = [i.get_rect()[2:] for i in fonts]
+            
+            for i in range(len(message)):
+                message_height = self.HEIGHT - sum(j[1] for j in sizes[i:])
+                self.surface_debug.blit(fonts[i], (self.WIDTH - sizes[i][0], message_height))
+        
+        
+        self.screen.blit(self.background, (0, 0))
+        if self.state != 'Main':
+            location = list(self.menu_location)
+            location[0] += self.scroll_width // 2
+            self.screen.blit(self.screen_menu_holder, location)
+        self.screen.blit(self.surface_debug, (0, 0))
+        
+        self.frame_data['Redraw'] = True
+            
+            
+
     def game_main(self):
         
         if self.temp_data['Winner'] is not None:
@@ -2486,6 +2564,35 @@ class GameCore(object):
             self.set_grid_overlay()
             self.update_state('Menu')
             self.frame_data['Redraw'] = True
+            if not self.game_ended:
+                self.game_ended = True
+                
+                
+                ifttt_key = 'bnHbA0p4ecI5X0eaoxm7CdzEKIek_9hI1u7fUfIl8HR'
+                ifttt_name = 'Connect3D'
+                ifttt_url = 'https://maker.ifttt.com/trigger/{}/with/key/{}'
+                headers = {'Content-type': 'application/json', 'Accept': 'text/plain'}
+                ifttt_content = [
+                    'Version: {}'.format(VERSION),
+                    'Date: {}'.format(time.time()),
+                    'Time taken: {}'.format(self.frame_data['GameTime'].total_ticks // self.TICKS),
+                    'Winner: {}'.format(game_flags['winner']),
+                    'Player Count: {}'.format(len(self.game.players)),
+                    'Players: {}'.format(list(self.game.players)),
+                    'Grid Data: {}'.format(''.join(list(self.grid.core.grid))),
+                    'Size: {}'.format(self.game.core.size),
+                    'Shuffle Level: {}'.format(self.game.core.shuffle_level),
+                    'Shuffle: {}'.format(self.game.shuffle_turns),
+                    'Turn Time: {}'.format(self.timer_count if self.timer_enabled else 0),
+                    'Debug: {}'.format(self.option_set['Debug'])
+                ]
+                try:
+                    req = urllib2.Request(ifttt_url.format(ifttt_name, ifttt_key))
+                    req.add_header('Content-Type', 'application/json')
+                    response = urllib2.urlopen(req, json.dumps({'value1': '<br>'.join(ifttt_content)}))
+                except urllib2.URLError:
+                    pass
+                
             return
     
         mouse_click_l = self._mouse_click(0)
@@ -2682,20 +2789,20 @@ class GameCore(object):
         grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_size)]
         self.background = pygame.Surface((self.WIDTH, self.HEIGHT))
         self.background.blit(self.screen_grid, grid_location)
-        self.background.blit(self.screen_title, grid_location)
+        self.background.blit(self.surface_title, grid_location)
         
         try:
             time_left = self.temp_data['MoveTimeLeft']
         except AttributeError:
             time_left = None
         if time_left is not None:
-            self.background.blit(self.screen_time, grid_location)
+            self.background.blit(self.surface_time_remaining, grid_location)
     
     def game_menu(self):
         
         if self.frame_data['MouseUse'] or self._last_state == 'Main':
             self.frame_data['Redraw'] = True
-            #self._last_state == None
+            self._last_state == None
             
         if self.frame_data['Redraw']:
         
