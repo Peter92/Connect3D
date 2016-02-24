@@ -870,7 +870,7 @@ class ArtificialIntelligence(object):
                 already_moved = bool(next_moves)
                 
                 if close_matches[player]:
-                    if not chance_notice_advanced or not next_moves or not extensive_look:
+                    if not chance_notice_advanced or not next_moves:
                         next_moves = close_matches[player]
                         self.game._ai_state = 'Gaining Points'
             
@@ -1074,7 +1074,7 @@ class DrawData(object):
 
 class GameCore(object):
 
-    FPS_IDLE = 30
+    FPS_IDLE = 5
     FPS_MAIN = 60
     FPS_SMOOTH = 120
     
@@ -1250,7 +1250,7 @@ class GameCore(object):
                 #print draw.line_coordinates
                 return draw
         
-    def resize_screen(self):
+    def resize_screen(self, quick=False):
         """Recalculate everything when a new width or height is set."""
         menu_width_multiplier = 20.5
         min_height = 200
@@ -1290,7 +1290,7 @@ class GameCore(object):
         self.font_sm_m = pygame.font.Font(self.font_file, height_sm_m)
         self.menu_font_size = self.font_lg_m.render('', 1, BLACK).get_size()[1]
         
-        self.score_width = None
+        self._last_title = None
         self.menu_padding = min(10, max(int(self.text_padding), max_width // 64))
         self.menu_box_padding = int(round(self.menu_width / 50))
         
@@ -1354,6 +1354,11 @@ class GameCore(object):
     def update_state(self, new_state=False, update_state=True):
         """Calculations to be done when the state of the game is changed."""
         if update_state:
+            try:
+                self.flag_data['LastState'] = self.state
+            except AttributeError:
+                pass
+            
             if new_state is not False:
                 self.state = new_state
         try:
@@ -1370,7 +1375,7 @@ class GameCore(object):
         try:
             self.frame_data['Redraw'] = True
             if self.state == 'Main':
-                self.frame_data['GameTime'].set_fps(self.FPS_IDLE)
+                self.frame_data['GameTime'].set_fps(self.FPS_MAIN)
             elif self.state in ('Menu', 'Instructions', 'About'):
                 self.frame_data['GameTime'].set_fps(self.FPS_MAIN)
         except (AttributeError, KeyError):
@@ -1414,7 +1419,7 @@ class GameCore(object):
             time_left = None
         
         if time_left is not None and self.timer_enabled:
-            time_left = int(round(time_left / self.TICKS + 0.5))
+            time_left = int(round(time_left / self.TICKS + 0.49))
             message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
             font = self.font_sm.render(message, 1, BLACK)
             size = font.get_rect()[2:]
@@ -1434,8 +1439,13 @@ class GameCore(object):
             
         #Display winner
         if winner is not None:
+            num_winners = len(winner)
             if len(winner) == 1:
                 message = "Player {} won!".format(winner[0])
+            elif num_winners < 5 and num_winners != self.game._player_count:
+                winner = map(str, winner)
+                numbers = '{} and {}'.format(', '.join(winner[:-1]), winner[-1])
+                message = 'Players {} {} drew!'.format(numbers, 'both' if len(winner) == 2 else 'all')
             else:
                 message = "The game was a draw!"
         
@@ -1453,7 +1463,11 @@ class GameCore(object):
             else:
                 message = "Player {} is thinking...".format(self.game._player)
         
-            
+        #Hide title if starting off the game
+        if self.state != 'Main' and not any(self.game.core.grid):
+            message = ''
+            self._last_title = None
+        
         font = self.font_lg.render(message, 1, BLACK)
         main_size = font.get_rect()[2:]
         self.surface_title.blit(font, ((self.WIDTH - main_size[0]) / 2, self.text_padding * 3))
@@ -1499,7 +1513,7 @@ class GameCore(object):
         point_display = '/'
         
         #Adjust number of points in a row to display
-        if self.score_width is None:
+        if self._last_title != message:
             size_remaining = (self.WIDTH - main_size[0]) / 2
             current_size = 0
             n = 9 #Start at minimum length of scores + 4
@@ -1549,7 +1563,7 @@ class GameCore(object):
             size = font.get_rect()[2:]
             self.surface_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
         
-        
+        self._last_title = message
         self.draw_surface_main_time()  
     
     def draw_surface_menu_container(self, update_scroll=True):
@@ -2036,72 +2050,67 @@ class GameCore(object):
         
             
         #Grid size options
-        if True:
-            if show_advanced:
+        if show_advanced:
+        
+            height_current += self.menu_padding
+            options = ('Increase', 'Decrease')
+            option_len = len(options)
+            selected = []
             
-                height_current += self.menu_padding
-                options = ('Increase', 'Decrease')
-                option_len = len(options)
-                selected = []
-                
-                too_low = self.option_set['GridSize'] == 1
-                for i in range(option_len):
-                    background = False
-                    foreground = i == self.option_hover['GridSize']
-                    if too_low and i:
-                        foreground = False
-                    selected.append((background, foreground))
-                
-                result = self._generate_menu_selection('Grid size is {}.'.format(self.option_set['GridSize']),
-                                                options, selected, height_current,
-                                                blit_list, rect_list)
-                self.option_hover['GridSize'], height_current = result
-                if self.option_hover['GridSize'] is not None and mouse_clicked and not(too_low and self.option_hover['GridSize']):
-                    self.option_set['GridSize'] += 1 - self.option_hover['GridSize'] * 2
-                    if instant_restart:
-                        self.frame_data['Reload'] = True
-                height_current += self.menu_padding
+            too_low = self.option_set['GridSize'] == 1
+            for i in range(option_len):
+                background = False
+                foreground = i == self.option_hover['GridSize']
+                if too_low and i:
+                    foreground = False
+                selected.append((background, foreground))
             
-                #Slow warning
-                if self.option_set['GridSize'] > 5 and any(self.option_set['Players']):
-                    result = self._generate_menu_selection('Warning: The AI will run extremely slow!',
-                                                    [], [], height_current,
-                                                    blit_list, rect_list, centre=True)
-                    _, height_current = result
+            result = self._generate_menu_selection('Grid size is {}.'.format(self.option_set['GridSize']),
+                                            options, selected, height_current,
+                                            blit_list, rect_list)
+            self.option_hover['GridSize'], height_current = result
+            if self.option_hover['GridSize'] is not None and mouse_clicked and not(too_low and self.option_hover['GridSize']):
+                self.option_set['GridSize'] += 1 - self.option_hover['GridSize'] * 2
+                if instant_restart:
+                    self.frame_data['Reload'] = True
+            height_current += self.menu_padding
         
-                    height_current += self.menu_padding
+            #Slow warning
+            if self.option_set['GridSize'] > 5 and any(self.option_set['Players']):
+                result = self._generate_menu_selection('Warning: The AI will run extremely slow!',
+                                                [], [], height_current,
+                                                blit_list, rect_list, centre=True)
+                _, height_current = result
+    
                 height_current += self.menu_padding
+            height_current += self.menu_padding
         
         
-        #Debug option
-        try:
-            q_pressed = self.frame_data['Keys'][pygame.K_q]
-        except KeyError:
-            pass
-        else:
-            if q_pressed and self.frame_data['KeyShift'] and self.frame_data['KeyAlt']:
-                '''
-        if not (not self.frame_data['Keys'][pygame.K_q] 
-                            or not (self.frame_data['Keys'][pygame.K_RSHIFT] or self.frame_data['Keys'][pygame.K_LSHIFT])
-                            or not (self.frame_data['Keys'][pygame.K_RALT] or self.frame_data['Keys'][pygame.K_LALT])):
-                '''
-                options = ('Yes', 'No')
-                option_len = len(options)
-                selected = []
+            #Debug option
+            try:
+                d_pressed = self.frame_data['Keys'][pygame.K_d]
+            except KeyError:
+                pass
+            else:
+                if d_pressed and self.frame_data['KeyShift'] and self.frame_data['KeyAlt']:
                 
-                for i in range(option_len):
-                    background = i == (not self.option_set['Debug'])
-                    foreground = i in (not self.option_set['Debug'], self.option_hover['Debug'])
-                    selected.append([background, foreground])
+                    options = ('Yes', 'No')
+                    option_len = len(options)
+                    selected = []
                     
-                result = self._generate_menu_selection('Show debug information?',
-                                                options, selected, height_current,
-                                                blit_list, rect_list)
-                self.option_hover['Debug'], height_current = result
-                
-                if self.option_hover['Debug'] is not None and mouse_clicked:
-                    self.option_set['Debug'] = not self.option_hover['Debug']
-                height_current += self.menu_padding * 2
+                    for i in range(option_len):
+                        background = i == (not self.option_set['Debug'])
+                        foreground = i in (not self.option_set['Debug'], self.option_hover['Debug'])
+                        selected.append([background, foreground])
+                        
+                    result = self._generate_menu_selection('Show debug information?',
+                                                    options, selected, height_current,
+                                                    blit_list, rect_list)
+                    self.option_hover['Debug'], height_current = result
+                    
+                    if self.option_hover['Debug'] is not None and mouse_clicked:
+                        self.option_set['Debug'] = not self.option_hover['Debug']
+                    height_current += self.menu_padding * 2
             
                 
         
@@ -2206,7 +2215,11 @@ class GameCore(object):
     def draw_surface_debug(self):
         
         if not self.option_set['Debug']:
+            pygame.display.set_caption('Connect 3D')
             return
+            
+        if self.frame_data['GameTime'].fps:
+            pygame.display.set_caption('Framerate: {}'.format(self.frame_data['GameTime'].fps))
         
         try:
             self.frame_data['MousePos']
@@ -2289,11 +2302,11 @@ class GameCore(object):
         offset = ((self.menu_width - self.scroll_width) * (0.5 + align / 2) - size[0]) / 2
         
         square = (offset - self.menu_box_padding,
-                  height_current - self.menu_box_padding,
+                  height_current - self.menu_box_padding / 2,
                   size[0] + self.menu_box_padding * 2,
                   size[1] + self.menu_box_padding)
     
-    
+        #rect_list.append([self.menu_colour, square])
         blit_list.append((font, (offset, height_current)))
         height_current += square[3]
         
@@ -2413,8 +2426,6 @@ class GameCore(object):
                          _range=self.game._range_players).start()
     
     def reload_game(self):
-        old_player = self.game._player
-        old_num_players = self.game._player_count
         old_size = self.game.core.size
         
         try:
@@ -2433,10 +2444,7 @@ class GameCore(object):
                 self.resize_screen()
             
             if self.game._player == -1:
-                if self.game._player_count == old_num_players:
-                    self.game._player = old_player
-                else:
-                    self.game._player = random.choice(self.game._range_players)
+                self.game._player = random.choice(self.game._range_players)
             
             #Update difficulty
             try:
@@ -2509,7 +2517,8 @@ class GameCore(object):
         #Initialise screen
         pygame.init()
         self.frame_data = {'MouseClick': list(pygame.mouse.get_pressed())}
-        self.flag_data = {'Disable': [None, None, None]}
+        self.flag_data = {'Disable': [None, None, None],
+                          'LastState': None}
         
         #Import the font
         self.font_file = 'Miss Monkey.ttf'
@@ -2527,9 +2536,17 @@ class GameCore(object):
         self.reload_game()
         self.resize_screen()
         
+        '''
+        #Clipboard
         pygame.scrap.init()
+        try:
+            pygame.scrap.put(pygame.SCRAP_TEXT, self.game.__repr__())
+        except pygame.error:
+            pass
+            '''
         
-        GT = GameTime(self.FPS_IDLE, self.TICKS)
+        GT = GameTime(self.FPS_MAIN, self.TICKS)
+        tick_count = 0
         while True:
             with GameTimeLoop(GT) as game_time:
             
@@ -2581,32 +2598,31 @@ class GameCore(object):
                                 
                     elif event.type == pygame.KEYUP:
                         self.frame_data['MouseUse'] = True
+                
                     
+                if self.frame_data['MouseUse']:
+                    self.frame_data['Redraw'] = True
                     
                 #---MAIN LOOP START---#
                 
+                    
+                    
                 if self.state == 'Main':
                     self.loop_main()
                 
                 elif self.state in ('Menu', 'Instructions', 'About'):
                     self.loop_menu()
                 
-                #Redraw once per second
-                if not game_time.total_ticks % self.TICKS:
-                    self.frame_data['Redraw'] = True
-                
                 self.draw_surface_debug()
                 
+                
+                #---MAIN LOOP END---#
                 if self.frame_data['Redraw']:
                     pygame.display.flip()
                     
                 if self.frame_data['Reload']:
                     self.reload_game()
-                
-                #---MAIN LOOP END---#
-                if game_time.fps:
-                    pygame.display.set_caption('{}'.format(game_time.fps))
-    
+
     def _mouse_click(self, i=0):
         """Disable more than one click happening when holding the mouse button down."""
         mouse_clicked = self.frame_data['MouseClick'][i] and self.flag_data['Disable'][i] is None
@@ -2617,14 +2633,12 @@ class GameCore(object):
         return mouse_clicked
     
     def loop_main(self):
+    
+        #End the current game
         if self.temp_data['Winner'] is not None:
-            self.draw_surface_main_title()
-            self.draw_surface_main_grid()
-            self.update_state('Menu')
-            self.frame_data['Redraw'] = True
+            #Only submit info once
             if not self.game_ended:
                 self.game_ended = True
-                
                 
                 ifttt_key = 'bnHbA0p4ecI5X0eaoxm7CdzEKIek_9hI1u7fUfIl8HR'
                 ifttt_name = 'Connect3D'
@@ -2633,14 +2647,14 @@ class GameCore(object):
                 ifttt_content = [
                     'Version: {}'.format(VERSION),
                     'Date: {}'.format(time.time()),
-                    'Time taken: {}'.format(self.frame_data['GameTime'].total_ticks // self.TICKS),
+                    'Time taken: {}'.format(self.frame_data['GameTime'].total_ticks / self.TICKS),
                     'Winner: {}'.format(self.temp_data['Winner']),
-                    'Player Count: {}'.format(len(self.game.players)),
                     'Players: {}'.format(list(self.game.players)),
-                    'Grid Data: {}'.format(''.join(map(str, list(self.game.core.grid)))),
+                    #'Grid Data: {}'.format(','.join(map(str, list(self.game.core.grid)))),
+                    'Grid Data: {}'.format(''.join('{0:08b}'.format(i) for i in self.game.core.grid)),
                     'Size: {}'.format(self.game.core.size),
                     'Shuffle Level: {}'.format(self.game.core.shuffle_level),
-                    'Shuffle: {}'.format(self.game.shuffle_turns),
+                    'Shuffle Turns: {}'.format(self.game.shuffle_turns),
                     'Turn Time: {}'.format(self.timer_count if self.timer_enabled else 0),
                     'Debug: {}'.format(self.option_set['Debug'])
                 ]
@@ -2650,7 +2664,9 @@ class GameCore(object):
                     response = urllib2.urlopen(req, json.dumps({'value1': '<br>'.join(ifttt_content)}))
                 except urllib2.URLError:
                     pass
-                
+            
+            self.draw_surface_main_title()
+            self.update_state('Menu')
             return
     
         mouse_click_l = self._mouse_click(0)
@@ -2666,6 +2682,7 @@ class GameCore(object):
                 self.frame_data['Redraw'] = True
                 self.draw_surface_main_time()
             
+            #Skip go if time ran out
             if self.temp_data['MoveTimeLeft'] < 0:
                 force_end = True + (self.temp_data['PendingMove'] is not None)
                 self.draw_surface_main_title()
@@ -2703,10 +2720,9 @@ class GameCore(object):
                     
             else:
                 self.temp_data['Hover'] = None
-                
+            
             self.draw_surface_main_title()
             self.draw_surface_main_grid()
-            self.frame_data['Redraw'] = True
             
         
         #Move not yet made
@@ -2737,6 +2753,10 @@ class GameCore(object):
                     #Player is holding click and has moved mouse away
                     elif mouse_block_id != self.temp_data['PendingMove'][0]:
                         self.temp_data['PendingMove'][2] = False
+                        
+                    #Cancel the click
+                    if mouse_click_r:
+                        self.temp_data['PendingMove'] = None
                 
                     self.draw_surface_main_grid()
                     self.frame_data['Redraw'] = True
@@ -2777,10 +2797,7 @@ class GameCore(object):
                 self.draw_surface_main_title()
                 self.draw_surface_main_grid()
                 self.frame_data['Redraw'] = True
-            
-            #else:
-            #    self.draw_surface_main_title()
-            #    self.frame_data['Redraw'] = True
+                
         
         #Commit the move
         else:
@@ -2820,13 +2837,6 @@ class GameCore(object):
             self.frame_data['Redraw'] = True
             self.temp_data['Winner'] = self.game.check_game_end(self.option_set['EndEarly'])
         
-        '''
-        #Copy game state to clipboard
-        try:
-            pygame.scrap.put(pygame.SCRAP_TEXT, self.game.__repr__())
-        except pygame.error:
-            pass
-            '''
         
         if force_end:
             if force_end == 1:
@@ -2842,12 +2852,16 @@ class GameCore(object):
             self.screen.blit(self.background, (0, 0))
 
     def loop_menu(self):
-        
-        if self.frame_data['MouseUse']:
-            self.frame_data['Redraw'] = True
+
+        #Fix to force it to show menu after someone wins
+        if self.flag_data['LastState'] == 'Main':
+            self.update_state(update_state=False)
+            self.flag_data['LastState'] = None
+            self.flag_data['Redraw'] = True
             
         if self.frame_data['Redraw']:
         
+            #Run the initial calculations
             mouse_wheel_scroll = self.draw_surface_menu_container()
             if self.state == 'Menu':
                 self.draw_surface_menu_settings()
@@ -2856,15 +2870,15 @@ class GameCore(object):
             elif self.state == 'About':
                 self.draw_surface_menu_about()
             
-            #Rerun calculations to update what the mouse is now hovering over
-            if mouse_wheel_scroll:
-                if self.state == 'Menu':
-                    self.draw_surface_menu_settings()
-                elif self.state == 'Instructions':
-                    self.draw_surface_menu_instructions()
-                elif self.state == 'About':
-                    self.draw_surface_menu_about()
-                self.draw_surface_menu_container(update_scroll=False)
+            
+            #Rerun calculations to update the hovering
+            if self.state == 'Menu':
+                self.draw_surface_menu_settings()
+            elif self.state == 'Instructions':
+                self.draw_surface_menu_instructions()
+            elif self.state == 'About':
+                self.draw_surface_menu_about()
+            self.draw_surface_menu_container(update_scroll=False)
             
             #Debugging redraws the menu, so don't redraw here
             if not self.option_set['Debug']:
