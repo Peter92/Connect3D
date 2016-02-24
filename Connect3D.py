@@ -932,7 +932,6 @@ class ArtificialIntelligence(object):
         
         #print state, self.game._ai_text
         self.game._ai_running = False
-        print player, self.game._ai_state
         return self.game._ai_move
         
 
@@ -2048,7 +2047,39 @@ class GameCore(object):
         
                     height_current += self.menu_padding
                 height_current += self.menu_padding
+        
+        
+        #Debug option
+        try:
+            q_pressed = self.frame_data['Keys'][pygame.K_q]
+        except KeyError:
+            pass
+        else:
+            if q_pressed and self.frame_data['KeyShift'] and self.frame_data['KeyAlt']:
+                '''
+        if not (not self.frame_data['Keys'][pygame.K_q] 
+                            or not (self.frame_data['Keys'][pygame.K_RSHIFT] or self.frame_data['Keys'][pygame.K_LSHIFT])
+                            or not (self.frame_data['Keys'][pygame.K_RALT] or self.frame_data['Keys'][pygame.K_LALT])):
+                '''
+                options = ('Yes', 'No')
+                option_len = len(options)
+                selected = []
+                
+                for i in range(option_len):
+                    background = i == (not self.option_set['Debug'])
+                    foreground = i in (not self.option_set['Debug'], self.option_hover['Debug'])
+                    selected.append([background, foreground])
+                    
+                result = self._game_menu_option('Show debug information?',
+                                                options, selected, height_current,
+                                                blit_list, rect_list)
+                self.option_hover['Debug'], height_current = result
+                
+                if self.option_hover['Debug'] is not None and mouse_clicked:
+                    self.option_set['Debug'] = not self.option_hover['Debug']
+                height_current += self.menu_padding * 2
             
+                
         
         #Menu buttons
         if instant_restart or self.temp_data['Winner'] is not None:
@@ -2346,7 +2377,7 @@ class GameCore(object):
             scroll_position = self.option_set['Scroll']
             end_early = self.option_set['EndEarly']
             grid_hover = self.option_hover['GridSize']
-            debug = self.option_hover['Debug']
+            debug = self.option_set['Debug']
         except AttributeError:
             advanced_options = None
             scroll_position = 0
@@ -2375,7 +2406,7 @@ class GameCore(object):
         self.option_hover = dict(self.option_set)
         
         self.option_hover['GridSize'] = grid_hover
-        self.option_set['Debug'] = False
+        self.option_set['Debug'] = debug
         self.option_set['OptionDirectionExample'] = 0
         self.option_set['EndEarly'] = end_early
         self.option_set['AdvancedOptions'] = advanced_options
@@ -2430,8 +2461,12 @@ class GameCore(object):
                                    'Keys': pygame.key.get_pressed(),
                                    'MousePos': pygame.mouse.get_pos(),
                                    'MouseClick': list(pygame.mouse.get_pressed()) + [0, 0],
-                                   'MouseUse': any(pygame.mouse.get_pressed()),
                                    'Reload': False}
+                
+                self.frame_data['MouseUse'] = any(self.frame_data['MouseClick']) or any(self.frame_data['Keys'])
+                self.frame_data['KeyCTRL'] = self.frame_data['Keys'][pygame.K_RCTRL] or self.frame_data['Keys'][pygame.K_LCTRL]
+                self.frame_data['KeyAlt'] = self.frame_data['Keys'][pygame.K_RALT] or self.frame_data['Keys'][pygame.K_LALT]
+                self.frame_data['KeyShift'] = self.frame_data['Keys'][pygame.K_RSHIFT] or self.frame_data['Keys'][pygame.K_LSHIFT]
                     
                 #Handle quitting and resizing window
                 if self.state is None:
@@ -2458,11 +2493,15 @@ class GameCore(object):
                         self.frame_data['MouseUse'] = True
                         
                     elif event.type == pygame.KEYDOWN:
+                        self.frame_data['MouseUse'] = True
                         if event.key == pygame.K_ESCAPE:
                             if self.state == 'Main':
                                 self.update_state('Menu')
                             else:
                                 self.update_state('Main')
+                                
+                    elif event.type == pygame.KEYUP:
+                        self.frame_data['MouseUse'] = True
                     
                     
                 #---MAIN LOOP START---#
@@ -2477,7 +2516,6 @@ class GameCore(object):
                 if not game_time.total_ticks % self.TICKS:
                     self.frame_data['Redraw'] = True
                 
-                self.option_set['Debug'] = True
                 self.set_surface_debug()
                 
                 if self.frame_data['Redraw']:
@@ -2497,8 +2535,11 @@ class GameCore(object):
             return
         try:
             self.frame_data['MousePos']
+            self.last_fps
         except KeyError:
             return
+        except AttributeError:
+            self.last_fps = self.frame_data['GameTime'].fps 
     
         self.surface_debug = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         
@@ -2506,19 +2547,19 @@ class GameCore(object):
         
         if self.frame_data['GameTime'].fps is not None:
             self.last_fps = self.frame_data['GameTime'].fps 
-        info = [' GRID:',
-                'Size: {}'.format(self.game.core.size),
-                'Length: {}'.format(int(self.draw.length)),
-                'Angle: {}'.format(self.draw.angle),
-                'Offset: {}'.format(map(int, self.draw.offset)),
-                ' MOUSE:',
-                'Coordinates: {}'.format(self.frame_data['MousePos']),
-                'Block ID: {}'.format(mouse_block_id),
-                ' PYGAME:',
-                'Redraw: {}'.format(self.frame_data['Redraw']),
-                'Ticks: {}'.format(self.frame_data['GameTime'].total_ticks),
-                'FPS: {}'.format(self.last_fps),
-                'Desired FPS: {}'.format(self.frame_data['GameTime']._temp_fps or self.frame_data['GameTime'].GTObject.desired_fps)
+        info = ['GRID:',
+                ' Size: {}'.format(self.game.core.size),
+                ' Length: {}'.format(int(self.draw.length)),
+                ' Angle: {}'.format(self.draw.angle),
+                ' Offset: {}'.format(map(int, self.draw.offset)),
+                'MOUSE:',
+                ' Coordinates: {}'.format(self.frame_data['MousePos']),
+                ' Block ID: {}'.format(mouse_block_id),
+                'PYGAME:',
+                ' Redraw: {}'.format(self.frame_data['Redraw']),
+                ' Ticks: {}'.format(self.frame_data['GameTime'].total_ticks),
+                ' FPS: {}'.format(self.last_fps),
+                ' Desired FPS: {}'.format(self.frame_data['GameTime']._temp_fps or self.frame_data['GameTime'].GTObject.desired_fps)
                 ]
                 
                 
@@ -2526,7 +2567,7 @@ class GameCore(object):
         sizes = [i.get_rect()[2:] for i in fonts]
         for i in range(len(info)):
             message_height = self.HEIGHT - sum(j[1] for j in sizes[i:])
-            self.surface_debug.blit(fonts[i], (0, message_height))
+            self.surface_debug.blit(fonts[i], (self.text_padding, message_height))
         
         
         #Format the AI text output
@@ -2541,9 +2582,9 @@ class GameCore(object):
             fonts = [self.font_sm.render(format_text(i), 1, BLACK) for i in self.game._ai_text]
             sizes = [i.get_rect()[2:] for i in fonts]
             
-            for i in range(len(message)):
+            for i in range(len(self.game._ai_text)):
                 message_height = self.HEIGHT - sum(j[1] for j in sizes[i:])
-                self.surface_debug.blit(fonts[i], (self.WIDTH - sizes[i][0], message_height))
+                self.surface_debug.blit(fonts[i], (self.WIDTH - sizes[i][0] - self.text_padding, message_height))
         
         
         self.screen.blit(self.background, (0, 0))
