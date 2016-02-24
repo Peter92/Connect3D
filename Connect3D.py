@@ -1419,7 +1419,7 @@ class GameCore(object):
             time_left = None
         
         if time_left is not None and self.timer_enabled:
-            time_left = int(round(time_left / self.TICKS + 0.49))
+            time_left = int(round(time_left / self.TICKS + 0.1))
             message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
             font = self.font_sm.render(message, 1, BLACK)
             size = font.get_rect()[2:]
@@ -1427,7 +1427,6 @@ class GameCore(object):
     
     def draw_surface_main_title(self):
         """Renders the display for the main game."""
-        self.surface_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
         
         try:
             winner = self.temp_data['Winner']
@@ -1441,34 +1440,39 @@ class GameCore(object):
         if winner is not None:
             num_winners = len(winner)
             if len(winner) == 1:
-                message = "Player {} won!".format(winner[0])
-            elif num_winners < 5 and num_winners != self.game._player_count:
+                title = "Player {} won!".format(winner[0])
+            elif 0 < num_winners < 5 and num_winners != self.game._player_count:
                 winner = map(str, winner)
                 numbers = '{} and {}'.format(', '.join(winner[:-1]), winner[-1])
-                message = 'Players {} {} drew!'.format(numbers, 'both' if len(winner) == 2 else 'all')
+                title = 'Players {} {} drew!'.format(numbers, 'both' if len(winner) == 2 else 'all')
             else:
-                message = "The game was a draw!"
+                title = "The game was a draw!"
         
         elif self.game._ai_running:
-            message = "Player {} is thinking...".format(self.game._player)
+            title = "Player {} is thinking...".format(self.game._player)
         
         #Don't instantly switch to player is thinking as it could be a quick click
         elif (pending_move is None
             or (not pending_move[3] and pending_move[1] > self.frame_data['GameTime'].total_ticks)):
-            message = "Player {}'s turn!".format(self.game._player)
+            title = "Player {}'s turn!".format(self.game._player)
             
         else:
             if pending_move[3]:
-                message = "Player {} is moving...".format(self.game._player)
+                title = "Player {} is moving...".format(self.game._player)
             else:
-                message = "Player {} is thinking...".format(self.game._player)
+                title = "Player {} is thinking...".format(self.game._player)
         
         #Hide title if starting off the game
         if self.state != 'Main' and not any(self.game.core.grid):
-            message = ''
+            title = ''
             self._last_title = None
         
-        font = self.font_lg.render(message, 1, BLACK)
+        #Avoid calculating extra stuff if the move is the same
+        if self._last_title == title:
+            return
+        
+        self.surface_title = pygame.Surface((self.WIDTH, self.HEIGHT), pygame.SRCALPHA, 32)
+        font = self.font_lg.render(title, 1, BLACK)
         main_size = font.get_rect()[2:]
         self.surface_title.blit(font, ((self.WIDTH - main_size[0]) / 2, self.text_padding * 3))
         
@@ -1513,7 +1517,7 @@ class GameCore(object):
         point_display = '/'
         
         #Adjust number of points in a row to display
-        if self._last_title != message:
+        if self._last_title != title:
             size_remaining = (self.WIDTH - main_size[0]) / 2
             current_size = 0
             n = 9 #Start at minimum length of scores + 4
@@ -1549,7 +1553,7 @@ class GameCore(object):
             current_height += lower_size[1] - self.text_padding
         
         #Status message
-        if winner is None and (skipped or flipped):
+        if winner is None and (skipped or flipped) and self._last_title != title:
             if skipped:
                 if skipped == 2:
                     message = 'Forced move!'
@@ -1563,8 +1567,8 @@ class GameCore(object):
             size = font.get_rect()[2:]
             self.surface_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
         
-        self._last_title = message
-        self.draw_surface_main_time()  
+        self._last_title = title
+        #self.draw_surface_main_time()  
     
     def draw_surface_menu_container(self, update_scroll=True):
         
@@ -1864,25 +1868,26 @@ class GameCore(object):
                 
                 #Update players and adjust shuffle count to players + 1
                 if self.option_hover['PlayerChange'] is not None and mouse_clicked:
-                    shuffle_turns = self.option_set['ShuffleTurns'] // len(self.option_set['Players'])
+                
                     changed_players = False
                     
                     if self.option_hover['PlayerChange'] and not too_low:
                         del self.option_set['Players'][-1]
                         del self.option_hover['Players'][-1]
                         changed_players = True
+                        print True
                         
                     elif not self.option_hover['PlayerChange'] and not too_high:
                         self.option_set['Players'].append(self.game.ai.DEFAULT_DIFFICULTY + 1)
                         self.option_hover['Players'].append(None)
                         changed_players = True
+                        print False
                     
                     if changed_players:
+                        self.option_set['ShuffleTurns'] += 1 if self.option_set['ShuffleTurns'] % 2 else -1
                         if instant_restart:
                             self.frame_data['Reload'] = True
                     
-                    self.option_set['ShuffleTurns'] = shuffle_turns * len(self.option_set['Players']) + 1
-            
             
             #Configure players
             options = ('Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme')
@@ -1960,17 +1965,23 @@ class GameCore(object):
             height_current += self.menu_padding
             
             
+            
             #Increase or decrease shuffle count
+            options = ('Increase', 'Decrease')
+            option_len = len(options)
+            selected = []
+            
+            shuffle_turns_max = max(1, self.game.core._size_cubed // 2)
+            too_low = self.option_set['ShuffleTurns'] <= 2
+            too_high = self.option_set['ShuffleTurns'] > shuffle_turns_max
             if show_advanced:
-                options = ('Increase', 'Decrease')
-                option_len = len(options)
-                selected = []
-                
-                too_low = self.option_set['ShuffleTurns'] <= len(self.option_set['Players']) - 1
+            
                 for i in range(option_len):
                     background = False
                     foreground = i == self.option_hover['ShuffleTurns']
                     if too_low and i:
+                        foreground = False
+                    if too_high and not i:
                         foreground = False
                     selected.append((background, foreground))
                     
@@ -1980,21 +1991,18 @@ class GameCore(object):
                 self.option_hover['ShuffleTurns'], height_current = result
                 
                 if self.option_hover['ShuffleTurns'] is not None and mouse_clicked:
-                    if not (too_low and self.option_hover['ShuffleTurns']):
-                    
-                        num_players = len(self.option_set['Players'])
-                        if self.option_set['ShuffleTurns'] == 1:
-                            self.option_set['ShuffleTurns'] += num_players
-                        else:
-                            self.option_set['ShuffleTurns'] += num_players * (1 - self.option_hover['ShuffleTurns'] * 2)
-                            
-                    else:
-                        self.option_set['ShuffleTurns'] = 1
+                    if self.option_hover['ShuffleTurns'] == 1 and not too_low:
+                        self.option_set['ShuffleTurns'] -= 2
+                    elif self.option_hover['ShuffleTurns'] == 0 and not too_high:
+                        self.option_set['ShuffleTurns'] += 2
                         
                     if instant_restart:
                         self.frame_data['Reload'] = True
                 height_current += self.menu_padding
-                        
+        
+            while self.option_set['ShuffleTurns'] > shuffle_turns_max:
+                self.option_set['ShuffleTurns'] -= 2
+        
         height_current += self.menu_padding * 2
                   
 
@@ -2605,8 +2613,6 @@ class GameCore(object):
                     
                 #---MAIN LOOP START---#
                 
-                    
-                    
                 if self.state == 'Main':
                     self.loop_main()
                 
@@ -2636,6 +2642,9 @@ class GameCore(object):
     
         #End the current game
         if self.temp_data['Winner'] is not None:
+            self.draw_surface_main_title()
+            self.update_state('Menu')
+            
             #Only submit info once
             if not self.game_ended:
                 self.game_ended = True
@@ -2665,8 +2674,6 @@ class GameCore(object):
                 except urllib2.URLError:
                     pass
             
-            self.draw_surface_main_title()
-            self.update_state('Menu')
             return
     
         mouse_click_l = self._mouse_click(0)
@@ -2797,7 +2804,9 @@ class GameCore(object):
                 self.draw_surface_main_title()
                 self.draw_surface_main_grid()
                 self.frame_data['Redraw'] = True
-                
+            else:
+                self.draw_surface_main_title()
+                self.frame_data['Redraw'] = True
         
         #Commit the move
         else:
