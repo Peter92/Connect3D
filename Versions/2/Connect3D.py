@@ -14,7 +14,7 @@ try:
     import pygame
 except ImportError:
     pygame = None
-VERSION = '1.1.0'
+VERSION = '2.0.0'
     
 BACKGROUND = (252, 252, 255)
 LIGHTBLUE = (86, 190, 255)
@@ -1866,9 +1866,7 @@ class GameCore(object):
                                                 blit_list, rect_list, centre=True)
                 self.option_hover['PlayerChange'], temp_height = result
                 
-                #Update players and adjust shuffle count to players + 1
                 if self.option_hover['PlayerChange'] is not None and mouse_clicked:
-                
                     changed_players = False
                     
                     if self.option_hover['PlayerChange'] and not too_low:
@@ -1895,7 +1893,6 @@ class GameCore(object):
             
             for id, player in enumerate(self.option_set['Players']):
             
-                
                 selected = []
                 dict_name = 'Player{}'.format(id + 1)
                 
@@ -2077,7 +2074,10 @@ class GameCore(object):
                                             options, selected, height_current,
                                             blit_list, rect_list)
             self.option_hover['GridSize'], height_current = result
-            if self.option_hover['GridSize'] is not None and mouse_clicked and not(too_low and self.option_hover['GridSize']):
+            
+            if (self.option_hover['GridSize'] is not None and mouse_clicked 
+                and not(too_low and self.option_hover['GridSize'])):
+                
                 self.option_set['GridSize'] += 1 - self.option_hover['GridSize'] * 2
                 if instant_restart:
                     self.frame_data['Reload'] = True
