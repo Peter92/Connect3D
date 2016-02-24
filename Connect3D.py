@@ -795,11 +795,12 @@ class ArtificialIntelligence(object):
             chance_ignore_near = 0
             if close_matches:
                 chance_ignore_near = pow(chance_ignore / chance_ignore_offset, 
-                                         pow(total_moves / self.game.core._size_cubed, 0.4))
+                                         pow(total_moves / self.game.core._size_cubed, 0.25))
             
-            
+            print chance_ignore, chance_ignore_near
             #Chance of things happening
             chance_notice_basic = random.uniform(0, 100) > chance_ignore_near
+            chance_notice_far = random.uniform(0, 100) > chance_ignore
             chance_notice_advanced = min(random.uniform(0, 100), random.uniform(0, 100)) > chance_ignore
             
             #Count occurances, set overall total to [0]
@@ -850,7 +851,6 @@ class ArtificialIntelligence(object):
             #Block enemy first then gain points
             change_tactic = random.uniform(0, 100) < chance_tactic
             if close_matches and chance_notice_basic:
-                print dict(close_matches)
             
                 already_moved = bool(next_moves)
                 
@@ -879,7 +879,7 @@ class ArtificialIntelligence(object):
             
             #Check for any n-2 points
             #Gain points first then block enemy
-            elif not next_moves:
+            elif not next_moves and chance_notice_far:
                 next_moves = far_matches[player]
                 self.game._ai_state = 'Looking Ahead (Gaining Points)'
                 
@@ -903,12 +903,12 @@ class ArtificialIntelligence(object):
                 
         
         #Make a semi random placement
-        if not next_moves and not chance_ignore and random.uniform(0, 100) > chance_ignore:
+        if (not next_moves or not self.game._ai_state) and not chance_ignore and random.uniform(0, 100) > chance_ignore:
             next_moves = self.points_bestcell(player)
             self.game._ai_state = 'Predictive placement'
             
         #Make a totally random move
-        if not next_moves:
+        if not next_moves or not self.game._ai_state:
             next_moves = [i for i in self.game.core._range_lg if not self.game.core.grid[i]]
             self.game._ai_state = 'Random placement'
                 
@@ -1074,6 +1074,7 @@ class GameCore(object):
     HEIGHT = 960
     MOVE_WAIT = 60
     TIMER_DEFAULT = 200
+    MOVE_WAIT = 0
     
     def __init__(self, C3DGame):
         self.game = C3DGame
@@ -1251,6 +1252,10 @@ class GameCore(object):
     
     def update_state(self, new_state=-1):
         """Calculations to be done when the state of the game is changed."""
+        try:
+            self._last_state = self.state
+        except AttributeError:
+            self._last_state = None
         if new_state != -1:
             self.state = new_state
         try:
@@ -1348,13 +1353,6 @@ class GameCore(object):
               
         #Draw grid
         for line in draw.line_coordinates:
-            '''
-            line = list(line)
-            if not int(line[0][0]):
-                line[0] = 1, line[0][1]
-            if not int(line[1][0]):
-                line[1] = 1, line[1][1]
-                '''
             pygame.draw.aaline(surface,
                                BLACK, line[0], line[1], 1)
     
@@ -1783,13 +1781,13 @@ class GameCore(object):
         else:
             subtitle_message = 'Want to play again?'
             if len(self.temp_data['Winner']) == 1:
-                title_message = 'Player {} was the winner!'.format(self.temp_data['Winner'].keys()[0])
+                title_message = 'Player {} was the winner!'.format(self.temp_data['Winner'][0])
             else:
                 title_message = 'It was a draw!'
         height_current = self._game_menu_title(title_message, subtitle_message, height_current, blit_list)
         
         
-        instant_restart = all(not i for i in self.game.core.grid) and self.temp_data['PendingMove'] is None and self.temp_data['Winner'] is None
+        instant_restart = all(not i for i in self.game.core.grid) and self.temp_data['PendingMove'] is None
         show_advanced = bool(self.option_set['AdvancedOptions'])
         mouse_clicked = self._mouse_click()
         
@@ -2045,7 +2043,7 @@ class GameCore(object):
             
         
         #Menu buttons
-        if instant_restart:
+        if instant_restart or self.temp_data['Winner'] is not None:
             result = self._game_menu_button('Start Game',
                                             self.option_hover['OptionNewGame'], 
                                             height_current, blit_list, rect_list,
@@ -2330,6 +2328,10 @@ class GameCore(object):
                           'Flipped': False,
                           'Skipped': False,
                           'MoveTimeLeft': None}
+        #try:
+        #    self.set_game_title()
+        #except AttributeError:
+        #    pass
     
     def update_settings(self):
     
@@ -2374,7 +2376,6 @@ class GameCore(object):
         self.option_set['Players'] = list(self.game.players)
         self.option_set['GridSize'] = self.game.core.size
         self.option_set['ShuffleTurns'] = self.game.shuffle_turns
-        
         self.scroll_offset = 0
         try:
             self.redraw()
@@ -2479,13 +2480,16 @@ class GameCore(object):
                     
 
     def game_main(self):
+        
+        if self.temp_data['Winner'] is not None:
+            self.set_game_title()
+            self.set_grid_overlay()
+            self.update_state('Menu')
+            self.frame_data['Redraw'] = True
+            return
     
         mouse_click_l = self._mouse_click(0)
         mouse_click_r = self._mouse_click(2)
-        
-        if self.temp_data['Winner']:
-            self.update_state('Menu')
-            self.frame_data['Redraw'] = True
     
         #Count ticks down
         force_end = False
@@ -2689,8 +2693,9 @@ class GameCore(object):
     
     def game_menu(self):
         
-        if self.frame_data['MouseUse']:
+        if self.frame_data['MouseUse'] or self._last_state == 'Main':
             self.frame_data['Redraw'] = True
+            #self._last_state == None
             
         if self.frame_data['Redraw']:
         
