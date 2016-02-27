@@ -14,7 +14,7 @@ try:
     import pygame
 except ImportError:
     pygame = None
-VERSION = '2.0.0'
+VERSION = '2.0.1'
     
 BACKGROUND = (252, 252, 255)
 LIGHTBLUE = (86, 190, 255)
@@ -332,7 +332,7 @@ class Connect3D(object):
         
         total = 0
         calculations = 1
-        for movement, invalid in self.directions.reverse_directions:
+        for movement, invalid in self.directions:
             count = 1
                 
             if not quick:
@@ -520,80 +520,93 @@ class Connect3DGame(object):
                 flipped = True
              
         
-class DirectionCalculation(object):
-    """Calculate which directions are possible to move in, based on the 6 directions.
-    Any combination is fine, as long as it doesn't go back on itself, hence why X, Y 
-    and Z have been given two values each, as opposed to just using six values.
+def direction_calculation(C3D):
+    """Calculate the directions to move in.
+    This is needed as the grid is a 1D list being treated as 3D.
     
-    Because the code to calculate score will look in one direction then reverse it, 
-    the list then needs to be trimmed down to remove any duplicate directions (eg. 
-    up/down and upright/downleft are both duplicates)
+    The direction moves are the amount of movement needed to go in a
+    direction. For example, going right is +1, but going up is -size^2.
+    
+    The edges refer to the sides of the grid in a particular direction,
+    so that the code knows where to stop looking.
+    
+    Since the code must look both ways from a single cell, directions
+    directly opposite of each other are not needed, so this works by
+    building a list of every direction, and trimming it down to remove 
+    any opposites.
+    
+    Parameters:
+        C3D (Connect3D): Needed to calculate the edges and movement.
     """
     
-    def __init__(self, C3D):
-        direction_group = {}
-        direction_group['X'] = 'LR'
-        direction_group['Y'] = 'UD'
-        direction_group['Z'] = 'FB'
-        direction_group[' '] = ' '
+    direction_group = {}
+    direction_group['X'] = 'LR'
+    direction_group['Y'] = 'UD'
+    direction_group['Z'] = 'FB'
+    direction_group[' '] = ' '
+    
+    #Calculate the edge numbers for each direction
+    edges = {'U': list(C3D._range_md),
+             'D': range(C3D._size_squared * (C3D.size - 1), C3D._size_cubed),
+             'R': [i * C3D.size + C3D.size - 1 for i in C3D._range_md],
+             'L': [i * C3D.size for i in C3D._range_md],
+             'F': [i * C3D._size_squared + C3D._size_squared + j - C3D.size
+                   for i in C3D._range_sm for j in C3D._range_sm],
+             'B': [i * C3D._size_squared + j for i in C3D._range_sm for j in C3D._range_sm],
+             ' ': []}
+                  
+    #Calculate the addition needed to move in each direction
+    move = {'U': -C3D._size_squared,
+            'D': C3D._size_squared,
+            'L': -1,
+            'R': 1,
+            'F': C3D.size,
+            'B': -C3D.size,
+            ' ': 0}
+    
+    #Come up with all possible directions
+    all_directions = set()
+    for x in [' ', 'X']:
+        for y in [' ', 'Y']:
+            for z in [' ', 'Z']:
+                x_directions = list(direction_group[x])
+                y_directions = list(direction_group[y])
+                z_directions = list(direction_group[z])
+                for i in x_directions:
+                    for j in y_directions:
+                        for k in z_directions:
+                            all_directions.add((i+j+k).replace(' ', ''))
+    
+    #Narrow list down to remove any opposite directions
+    opposite_direction = all_directions.copy()
+    for i in all_directions:
+        if i in opposite_direction:
+            new_direction = ''
+            for j in list(i):
+                for k in direction_group.values():
+                    if j in k:
+                        new_direction += k.replace(j, '')
+            opposite_direction.remove(new_direction)
+    
+    #Calculate actual directions specific to current grid size
+    reverse_directions = []
+    for direction in opposite_direction:
         
-        #Calculate the edge numbers for each direction
-        edges = {'U': list(C3D._range_md),
-                 'D': range(C3D._size_squared * (C3D.size - 1), C3D._size_squared * C3D.size),
-                 'R': [i * C3D.size + C3D.size - 1 for i in C3D._range_md],
-                 'L': [i * C3D.size for i in C3D._range_md],
-                 'F': [i * C3D._size_squared + C3D._size_squared + j - C3D.size
-                       for i in C3D._range_sm for j in C3D._range_sm],
-                 'B': [i * C3D._size_squared + j for i in C3D._range_sm for j in C3D._range_sm],
-                 ' ': []}
-                      
-        #Calculate the addition needed to move in each direction
-        move = {'U': -C3D._size_squared,
-                'D': C3D._size_squared,
-                'L': -1,
-                'R': 1,
-                'F': C3D.size,
-                'B': -C3D.size,
-                ' ': 0}
+        #Get a list of directions and calculate movement amount
+        directions = [list(direction)]
+        directions += [[j.replace(i, '') 
+                       for i in directions[0] 
+                       for j in direction_group.values() 
+                       if i in j]]
+        direction_movement = sum(move[j] for j in directions[0])
+                        
+        #Build list of invalid directions
+        invalid_directions = [[edges[j] for j in directions[k]] for k in (0, 1)]
+        invalid_directions = [join_list(j) for j in invalid_directions]
         
-        #Come up with all possible directions
-        all_directions = set()
-        for x in [' ', 'X']:
-            for y in [' ', 'Y']:
-                for z in [' ', 'Z']:
-                    x_directions = list(direction_group[x])
-                    y_directions = list(direction_group[y])
-                    z_directions = list(direction_group[z])
-                    for i in x_directions:
-                        for j in y_directions:
-                            for k in z_directions:
-                                all_directions.add((i+j+k).replace(' ', ''))
-        
-        #Narrow list down to remove any opposite directions
-        opposite_direction = all_directions.copy()
-        for i in all_directions:
-            if i in opposite_direction:
-                new_direction = ''
-                for j in list(i):
-                    for k in direction_group.values():
-                        if j in k:
-                            new_direction += k.replace(j, '')
-                opposite_direction.remove(new_direction)
-        
-        #Calculate actual directions specific to current grid size
-        self.reverse_directions = []
-        for direction in opposite_direction:
-            
-            #Get a list of directions and calculate movement amount
-            directions = [list(direction)]
-            directions += [[j.replace(i, '') for i in directions[0] for j in direction_group.values() if i in j]]
-            direction_movement = sum(move[j] for j in directions[0])
-                            
-            #Build list of invalid directions
-            invalid_directions = [[edges[j] for j in directions[k]] for k in (0, 1)]
-            invalid_directions = [join_list(j) for j in invalid_directions]
-            
-            self.reverse_directions.append((direction_movement, invalid_directions))
+        reverse_directions.append((direction_movement, invalid_directions))
+    
+    return reverse_directions
         
     
 class FlipGrid(object):
@@ -759,7 +772,7 @@ class ArtificialIntelligence(object):
                 old_value = grid[i]
                 for player in player_range:
                     grid[i] = player
-                    match = self.points_immediateneighbour(player_range=player_range, grid=grid)
+                    match = self.points_immediateneighbour(player_range=[player], grid=grid)
                     if match:
                         for k, v in match.iteritems():
                             matches[k] += [cell for cell in v if cell not in match_cells or v.count(cell) > 1]
