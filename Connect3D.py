@@ -33,6 +33,7 @@ SELECTION = {'Default': [WHITE, LIGHTGREY],
              'Foreground': [None, BLACK]}
              
 class GameTime(object):
+    """Hold the required FPS and ticks for GameTimeLoop to use."""
     def __init__(self, desired_fps=120, desired_ticks=60):
         self.start_time = time.time()
         self.desired_fps = desired_fps
@@ -62,6 +63,7 @@ class GameTime(object):
         
         It will return a number every update_time seconds, and will
         return None any other time.
+        Setting update_time too low will result in incorrect values.
         """
         frame_time = current_time - self.framerate_time
         
@@ -113,16 +115,17 @@ class GameTimeLoop(object):
     
     def update_ticks(self, ticks):
         """Change the tick rate."""
-        '''
-        self.GTObject.start_time = time.time()
-        self.GTObject.desired_ticks = ticks
-        self.ticks = 0
-        '''
+        
         #New attempt, needs testing
         self.GTObject.ticks = ticks * (self.GTObject.ticks / self.GTObject.desired_ticks)
         self.GTObject.desired_ticks = ticks
+        return
         
+        self.GTObject.start_time = time.time()
+        self.GTObject.desired_ticks = ticks
+        self.ticks = 0
 
+        
 def format_text(x):
     """Format text to remove invalid characters."""
     left_bracket = ('[', '{')
@@ -135,9 +138,7 @@ def format_text(x):
              
              
 class ThreadHelper(Thread):
-    """Run a function in a background thread.
-    Cannot be used to return values.
-    """
+    """Run a function in a background thread."""
     def __init__(self, function, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
@@ -163,8 +164,7 @@ def get_max_keys(x):
     """
     if x:
         sorted_dict = sorted(x.iteritems(), key=itemgetter(1), reverse=True)
-        if sorted_dict[0][1]:
-            return sorted([k for k, v in x.iteritems() if v == sorted_dict[0][1]])
+        return sorted([k for k, v in x.iteritems() if v == sorted_dict[0][1]])
     return []
     
             
@@ -179,21 +179,33 @@ def join_list(x):
 
     
 def round_up(x):
+    """Round an integer up if it's a float."""
     return int(x) + bool(x % 1)
 
     
 class Connect3D(object):
-    """Class for holding the game information.
-    
-    Contains the grid, level of shuffle, and score.
-    Printing the class results in a text based representation of the grid.
-    The grid format supports up to 255 players.
-    """
     DEFAULT_SIZE = 4
     DEFAULT_SHUFFLE_LEVEL = 1
     
     def __init__(self, size=None, shuffle_level=None):
+        """Class for holding the grid information.
+    
+        Contains the grid, level of shuffle and score, and holds the 
+        class to flip the grid.
+        The grid supports up to 254 players.
         
+        Printing the class results in a text based representation of 
+        the grid.
+        
+        Parameters:
+            size (int): Dimensions of the grid.
+                Default: 4
+            
+            shuffle_level (int, optional): How much to shuffle the 
+                grid.
+                See self.shuffle() for more information.
+                Default: 1
+        """
         self.size = self.DEFAULT_SIZE if size is None else max(1, size)
         self.shuffle_level = self.DEFAULT_SHUFFLE_LEVEL if shuffle_level is None else max(0, min(2, shuffle_level))
         
@@ -208,20 +220,69 @@ class Connect3D(object):
         #Main parts
         self.grid = bytearray(0 for _ in self._range_lg)
         self.flip = FlipGrid(self)
-        self.directions = DirectionCalculation(self)
+        self.directions = direction_calculation(self)
         self.calculate_score()
 
     def __repr__(self):
+        """Encode the data to be loaded later."""
         output = base64.b64encode(zlib.compress(str(self.grid)))
         return "Connect3D({}).load('{}')".format(self.size, output)
-
+    
     def load(self, data, update_score=True):
+        """Decode and load the data from __repr__.
+        
+        Parameters:
+            data (str): Encoded and compressed grid.
+            
+            update_score (bool): If the score calculation should be
+                run once the grid is loaded.
+                Default: True
+        """
         try:
             grid = bytearray(zlib.decompress(base64.b64decode(data)))
             return self.set_grid(grid, update_score=update_score)
         except ValueError:
             return self.set_grid(data, update_score=update_score)
+    
+    @classmethod
+    def from_list(cls, data):
+        """Load a grid into the game from a list.
         
+        Parameters:
+            data (list): List containing all the values in the grid.
+                None of the values should be above 254.
+        """
+        grid = data
+        cube_root = pow(len(grid), 1/3)
+        
+        if int(round(cube_root)) != self.size:
+            raise ValueError('incorrect input size')
+            
+        #Create new class
+        new_instance = cls(size=self.size, shuffle_level=self.shuffle_level)
+        new_instance.set_grid(grid)
+        return new_instance
+    
+    @classmethod
+    def from_str(cls, data):
+        """Load a grid into the game from a string.
+        
+        Parameters:
+            data (str): String containing all the values in the grid.
+                Since the string is split by each character, none of
+                values can be above 9.
+        """
+        grid = [0 if i == ' ' else int(i) for i in data]
+        cube_root = pow(len(grid), 1/3)
+        
+        if round(cube_root) != round(cube_root, 4):
+            raise ValueError('incorrect input size')
+            
+        #Create new class
+        new_instance = cls(size=int(round(cube_root)))
+        new_instance.set_grid(grid)
+        return new_instance
+    
     def __str__(self):
         """Print the current state of the grid."""
         grid_range = range(self.size)
@@ -236,9 +297,9 @@ class Connect3D(object):
             grid_output.append(row_top)
             for i in grid_range:
                 row_display = '{}/{}'.format(' ' * (self.size * 2 - i * 2), 
-                                             ''.join(('{}{}{}/'.format('' if self.grid[k + x] > 9 else ' ', 
+                                             ''.join(('{}{}{}/'.format('' if len(str(grid[k + x])) > 1 else ' ', 
                                                                        str(self.grid[k + x]).ljust(1), 
-                                                                       '' if self.grid[k + x] > 99 else ' ')) 
+                                                                       '' if len(str(grid[k + x])) > 2 else ' ')) 
                                                      for x in grid_range))
                 row_bottom = '{}/{}'.format(' ' * (self.size * 2 - i * 2 - 1),
                                             '___/' * self.size)
@@ -256,20 +317,25 @@ class Connect3D(object):
                 grid_output += [row_display, row_bottom]
                 
         return '\n'.join(grid_output)
-
-
+    
     def shuffle(self, level=None):
-        """Mirror the grid in the X, Y, or Z axis.
+        """Flip or rotate the grid in the X, Y, or Z axis.
         
-        A level of 1 is mirror only.
-        A level of 2 includes rotation.
+        Parameters:
+            level(int, optional): Override for self.shuffle_level.
+                If None, self.shuffle_level will be used.
+                Default: None
+                
+        A level of 0 is disabled.
+        A level of 1 is flip/mirror only.
+        A level of 2 also includes rotation.
         """
         
         if level is None:
             level = self.shuffle_level
             
         #Shuffle is disabled
-        if not level:
+        elif not level:
             return False
             
         all_flips = (self.flip.fx, self.flip.fy, self.flip.fz, 
@@ -284,10 +350,19 @@ class Connect3D(object):
         self.grid = bytearray(self.grid)
         
         return True
-        
-
+    
     def set_grid(self, grid, update_score=True):
-        """Set a new grid, used for preview purposes."""
+        """Apply a new grid with some validation.
+        
+        Parameters:
+            grid (bytearray/list): New grid to replace the old grid.
+                If the size doesn't match the old grid, an error will
+                be thrown.
+            
+            update_score (bool): If the score calculation should be
+                run once the grid is loaded.
+                Default: True
+        """
         grid = bytearray(grid)
         if len(grid) != self._size_cubed:
             raise ValueError("grid length must be '{}' not '{}'".format(self._size_cubed, len(grid)))
@@ -297,6 +372,7 @@ class Connect3D(object):
         return self
         
     def calculate_score(self):
+        """Iterate through the grid to find any complete rows."""
         
         self.score = defaultdict(int)
         hashes = defaultdict(set)
@@ -312,11 +388,20 @@ class Connect3D(object):
         
         return self.score
 
-
     def _point_score(self, id, player=None, quick=False):
-        """Find how many points are gained from a cell, and return the row hashes.
+        """Find how many points pass through a cell, and return the 
+        row hashes.
         
-        Set an optional player value to force the first value to be that player.
+        Parameters:
+            id (int), ID of the cell to look at.
+            
+            player (int, optional): Force the cell to act as if it is
+                owned by the player.
+                Default: None
+            
+            quick (bool): Only count number of points and don't build
+                any lists.
+                Default: False
         """
         
         if player is None:
@@ -371,6 +456,28 @@ class Connect3DGame(object):
     DEFAULT_SHUFFLE_TURNS = 3
     
     def __init__(self, players, shuffle_level=None, shuffle_turns=None, size=None):
+        """Class for holding the game information.
+        
+        It contains the players and number of turns before a shuffle,
+        and also holds the AI class.
+        
+        Parameters:
+            players (list/tuple): The players to use in the game.
+                The values can range from 0 to 5, where 0 is a human
+                player, and 5 is the hardest AI.
+            
+            shuffle_level (int, optional): Pass a different level to the
+                Connect3D class.
+                Default: None
+            
+            shuffle_turns (int, optional): How many turns of the game
+                should pass before flipping the grid.
+                Default: 3
+            
+            size (int, optional): Pass a different size to the
+                Connect3D class.
+                Default: None
+        """
         self.shuffle_turns = self.DEFAULT_SHUFFLE_TURNS if shuffle_turns is None else max(0, shuffle_turns)
         self.core = Connect3D(size=size, shuffle_level=shuffle_level)
         self.ai = ArtificialIntelligence(self)
@@ -378,6 +485,7 @@ class Connect3DGame(object):
         self._ai_move = None
         self._ai_state = None
         self._ai_running = False
+        self._force_stop_ai = False
         
         self.players = list(players)
         for i, player in enumerate(self.players):
@@ -391,30 +499,28 @@ class Connect3DGame(object):
         self._range_players = [i + 1 for i in range(self._player_count)]
         self._player = -1
         self._player_types = [i - 1 for i in self.players]
-        
-    def next_player(self, player, num_players):
-        player += 1
-        if player != num_players:
-            player %= num_players
-        return player
     
-    def previous_player(self, player, num_players):
-        player -= 1
-        if player == 0:
-            player = num_players
-        return player
+    def __str__(self):
+        return self.core.__str__()
     
     def __repr__(self):
-        data = bytearray(list(self.players) + [self._player, 6]) + self.core.grid
+        """Encode the data to be loaded later."""
+        data = bytearray(list(self.players) + [self._player, ArtificialIntelligence.HIGHEST_AI + 1]) + self.core.grid
         output = base64.b64encode(zlib.compress(str(data)))
         return "Connect3DGame.load('{}')".format(output)
         
     @classmethod
     def load(cls, data):
-        """Load a grid into the game."""
+        """Decode and load the data from __repr__.
+        
+        Parameters:
+            data(str): Encoded and compressed game data.
+                Contains the current player, player types, and the
+                current state of the grid.
+        """
         
         decoded_data = bytearray(zlib.decompress(base64.b64decode(data)))
-        players, grid = decoded_data.split(chr(6), 1)
+        players, grid = decoded_data.split(chr(ArtificialIntelligence.HIGHEST_AI + 1), 1)
         player = players.pop(-1)
         
         cube_root = pow(len(grid), 1/3)
@@ -428,20 +534,48 @@ class Connect3DGame(object):
         new_instance._player = player
         return new_instance
     
-    def check_game_end(self, end_early=True):
+    def next_player(self, player):
+        """Return the next player."""
+        player += 1
+        if player != self._player_count:
+            player %= self._player_count
+        return player
     
-            #Check if any points are left to gain
-            points_left = True
-            if end_early:
-                potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in self._range_players}
-                if all(self.core.score == potential_points[player] for player in self._range_players):
-                    points_left = False
-                    
-            #Check if no spaces are left
-            if 0 not in self.core.grid or not points_left:
-                return get_max_keys(self.core.score)
+    def previous_player(self, player):
+        """Return the previous player."""
+        player -= 1
+        if player == 0:
+            player = self._player_count
+        return player
+    
+    def check_game_end(self, end_early=True):
+        """Check if the game has ended.
+        
+        Parameters:
+            end_early (bool): If the game should end when no rows are
+                left to gain. If disabled, the game will only end when
+                no empty cells are remaining.
+                Default: True
+        """
+        #Check if any points are left to gain
+        points_left = True
+        if end_early:
+            potential_points = {j: Connect3D(self.core.size).set_grid([j if not i else i for i in self.core.grid]).score for j in self._range_players}
+            if all(self.core.score == potential_points[player] for player in self._range_players):
+                points_left = False
+                
+        #Check if no spaces are left
+        if 0 not in self.core.grid or not points_left:
+            return get_max_keys(self.core.score)
            
     def play(self, basic=False):
+        """Main function to play the game.
+        It will run the Pygame version if possible.
+        If not, it'll run a more basic text version.
+        
+        Parameters:
+            basic (bool): Force the text version of the game to run.
+        """
         
         if self._player == -1:
             self._player = random.choice(self._range_players)
@@ -459,10 +593,8 @@ class Connect3DGame(object):
             if flipped:
                 flipped = False
                 print "Grid was flipped!"
-            #if self._ai_text:
-            #    print self._ai_text
-            self._ai_text = []
             
+            #Check each turn for a winner
             winning_player = self.check_game_end(self._range_players)
             if winning_player is not None:
                 if len(winning_player) == 1:
@@ -507,10 +639,10 @@ class Connect3DGame(object):
             
             #Computer move
             else:
-                new_go = self.ai.calculate_move(self._player, difficulty=player_type, _range=self._range_players)
+                new_go = self.ai.calculate_move(self._player, difficulty=player_type, player_range=self._range_players)
                 self.core.grid[new_go] = self._player
             
-            self._player = self.next_player(self._player, self._player_count)
+            self._player = self.next_player(self._player)
             
             #Flip the grid
             count_shuffle += 1
@@ -519,7 +651,6 @@ class Connect3DGame(object):
                 self.core.shuffle()
                 flipped = True
              
-        
 def direction_calculation(C3D):
     """Calculate the directions to move in.
     This is needed as the grid is a 1D list being treated as 3D.
@@ -607,7 +738,6 @@ def direction_calculation(C3D):
         reverse_directions.append((direction_movement, invalid_directions))
     
     return reverse_directions
-        
     
 class FlipGrid(object):
     """Use the size of the grid to calculate how flip it on the X, Y, or Z axis.
@@ -685,30 +815,44 @@ class FlipGrid(object):
         """Reverse the grid."""
         return data[::-1], 'r'
 
-
 class ArtificialIntelligence(object):
-    """AI coded to play Connect3D."""
     
     DEFAULT_DIFFICULTY = 2
+    HIGHEST_AI = 5
     
     def __init__(self, C3DGame):
+        """AI coded to play Connect3D.
+        
+        Parameters:
+            C3DGame (Connect3DGame): Needed for the contained Connect3D
+                class, and also to write the AI progress to a list.
+        """
         self.game = C3DGame
         self._temp_core = Connect3D(self.game.core.size)
     
 
-    def check_cell(self, cell_id, grid, player=None):
-        """Check how many points a cell has for a specific grid.
+    def check_cell(self, cell_id, grid=None, player=None):
+        """Check how many points a cell has in a grid.
         
         Parameters:
-            grid (list/tuple): 1D list of grid cells, amount must be a cube number.
-            
             cell_id (int): The cell ID, or grid_data index to update.
             
-            player (int): Integer representation of the player, can be 0 or 1.
+            grid (list/tuple/bytearray, optional): Custom grid to 
+                check.
+                If None, defaults to the current grid.
+                Default: None
+            
+            player (int, optional): See Connect3D._point_sore().
+                Default: None
         """
+        if self.game._force_stop_ai:
+            return 0
         
-        self._temp_core.grid = grid
-        total, calculations = self._temp_core._point_score(cell_id, player, quick=True)
+        if grid is not None:
+            self._temp_core.grid = grid
+            total, calculations = self._temp_core._point_score(cell_id, player, quick=True)
+        else:
+            total, calculations = self.game.core._point_score(cell_id, player, quick=True)
         try:
             self.calculations += calculations
         except AttributeError:
@@ -716,9 +860,9 @@ class ArtificialIntelligence(object):
         return total
         
         
-    def points_bestcell(self, player):
-        """Get maximum number of points that can be gained from each empty cell,
-        that is not blocked by an enemy value.
+    def find_best_cell(self, player):
+        """Get maximum number of points that can be gained for a player
+        from each empty cell.
         """
         max_points = defaultdict(int)
         filled_grid = bytearray(i if i else player for i in self.game.core.grid)
@@ -728,35 +872,31 @@ class ArtificialIntelligence(object):
         
         return get_max_keys(max_points)
 
-    def points_immediateneighbour(self, player_range, grid=None):
-        """Find all places where anyone has n-1 points in a row, by substituting
-        in a point for each player in every cell.
-        
-        Parameters:
-            grid_data (list or None, optional): Pass in a custom grid_data, 
-                leave as None to use the Connect3D one.
+    def find_close_neighbour(self, player_range, grid=None):
+        """Find all places where anyone has n-1 points in a row, by 
+        substituting in a point for each player in every cell.
         """
-        if grid is None:
-            grid = bytearray(self.game.core.grid)
+        if self.game._force_stop_ai:
+            return []
+            
+        new_grid = bytearray(self.game.core.grid if grid is None else grid)
         
         matches = defaultdict(list)
         for cell_id in self.game.core._range_lg:
-            if not grid[cell_id]:
+            if not new_grid[cell_id]:
                 for player in player_range:
                     if self.check_cell(cell_id, grid, player):
                         matches[player].append(cell_id)
         
         return matches
     
-    def points_nearneighbour(self, player_range):
-        """Look two moves ahead to detect if someone could get a point.
-        Uses the check_for_n_minus_one function from within a loop.
-        
-        Will return 1 as the second parameter if it has looked up more than a single move.
+    def find_far_neighbour(self, player_range):
+        """Look two moves ahead to detect if someone could complete a row.
+        Uses the find_close_neighbour function from within a loop.
         """
         
         #Initial check
-        initial_match = self.points_immediateneighbour(player_range=player_range)
+        initial_match = self.find_close_neighbour(player_range=player_range)
         match_cells = []
         
         #Make list of all cells so far to avoid duplicates
@@ -772,7 +912,7 @@ class ArtificialIntelligence(object):
                 old_value = grid[i]
                 for player in player_range:
                     grid[i] = player
-                    match = self.points_immediateneighbour(player_range=[player], grid=grid)
+                    match = self.find_close_neighbour(player_range=[player], grid=grid)
                     if match:
                         for k, v in match.iteritems():
                             matches[k] += [cell for cell in v if cell not in match_cells or v.count(cell) > 1]
@@ -782,26 +922,39 @@ class ArtificialIntelligence(object):
         return initial_match, matches
         
 
-    def calculate_move(self, player, difficulty=None, _range=None):
-        """Groups together the AI methods in order of importance.
-        Will throw an error if grid_data is full, since the game should have ended by then anyway.
+    def calculate_move(self, player, difficulty=None, player_range=None):
+        """Uses the possible moves to calculate an actual move to make.
+        This is the part that can be changed for different behaviour.
         
-        The far_away part determins which order to do things in.
+        The outcome depends a lot on chance, but taking the 'extreme'
+        AI as an example since it has no chance, it only depends on 2
+        things: the n-1 possible moves, and n-2 possible moves.
         
-            It's set up so that for n-1 in a row, the most urgent thing is to stop the 
-            opposing player before gaining any points. However, for n-2 in a row, it's 
-            more useful to gain points if possible.
-            
-            By setting order_of_importance to 0, it'll always try block the player 
-            first, and by setting to 1, it'll always try score points regardless of 
-            if the other player will get one too.
+        Current order of priorities:
+        1. Block any n-1 rows
+        2. Block any n-2 advanced moves
+        3. Complete any n-1 rows
+        4. Continue any n-2 advanced moves
+        5. Continue any n-2 rows
+        6. Block any n-2 rows
+        7. Make a predictive placement
+        8. Make a random placement
+        
+        An n-1 row is where the row is one cell of being completed.
+        An n-2 row is where a row is two cells from being completed.
+        An advanced move is where once cell results in two n-2 rows
+        becoming n-1 rows, which is impossible to block.
+        
+        If the grid is full, an error will be thrown, since this should
+        not be running
         """
         self.game._ai_running = True
         
-        if _range is None:
-            _range = (1, 2)
+        #Default to 2 players
+        if player_range is None:
+            player_range = (1, 2)
         
-        chance_tactic, chance_ignore, chance_ignore_offset = self.difficulty(difficulty)
+        chance_tactic, chance_ignore_near, chance_ignore_far = self.difficulty(difficulty)
         
         total_moves = len([i for i in self.game.core.grid if i])
         self.calculations = 0
@@ -814,27 +967,22 @@ class ArtificialIntelligence(object):
         
         #It is possible the first few moves since they need the most calculations
         #This is disabled for now though as the AI runs a lot faster
-        non_dangerous_skip = total_moves >= (self.game.core.size - 2) * len(_range)
+        non_dangerous_skip = total_moves >= (self.game.core.size - 2) * len(player_range)
         
         if True:
             
             #Calculate move
-            close_matches, far_matches = self.points_nearneighbour(player_range=_range)
+            close_matches, far_matches = self.find_far_neighbour(player_range=player_range)
             del self.game._ai_text[0]
             ai_text('Urgent: {}'.format(bool(close_matches)))
             
-            #Reduce chance of not noticing n-1 in a row, since n-2 in a row isn't too important
-            chance_ignore_near = 0
-            if close_matches:
-                chance_ignore_near = pow(chance_ignore / chance_ignore_offset, 
-                                         pow(total_moves / self.game.core._size_cubed, 0.25))
-            
             #Chance of things happening
+            chance_ignore_near **= pow(total_moves / self.game.core._size_cubed, 0.25)
             chance_notice_basic = random.uniform(0, 100) > chance_ignore_near
-            chance_notice_far = random.uniform(0, 100) > chance_ignore
-            chance_notice_advanced = min(random.uniform(0, 100), random.uniform(0, 100)) > chance_ignore
+            chance_notice_far = random.uniform(0, 100) > chance_ignore_far
+            chance_notice_advanced = min(random.uniform(0, 100), random.uniform(0, 100)) > chance_ignore_far
             
-            #Count occurances, set overall total to [0]
+            #Count occurances, and store the overall total in move_count_player[0]
             move_count_player = defaultdict(dict)
             move_count_player[0] = defaultdict(int)
             move_count_advanced = defaultdict(list)
@@ -848,10 +996,12 @@ class ArtificialIntelligence(object):
                     if v2 > 1:
                         move_count_advanced[k] += [k2] * (v2 - 1)
             
+            #Check if there actually are any advanced moves to make
             advanced_move = any(v > 1 for k, v in move_count_player[0].iteritems())
             
             #First try block an enemy advanced move, then do own
             #Then do the move that would block an enemy and gain a point at the same time
+            advanced_move_type = 0
             if advanced_move and chance_notice_advanced:
                 next_moves_total = move_count_advanced[0]
                 next_moves_player = move_count_advanced[player]
@@ -863,29 +1013,34 @@ class ArtificialIntelligence(object):
                     if k:
                         next_moves = move_count_advanced[k]
                         self.game._ai_state = 'Forward Thinking (Blocking Opposition)'
+                        advanced_move_type = 1
                 
                 #Own moves
                 if next_moves_player:
                     if not next_moves or random.uniform(0, 100) < chance_tactic:
                         next_moves = next_moves_player
                         self.game._ai_state = 'Forward Thinking (Gaining Points)'
+                        advanced_move_type = 2
                     
                 #Leftover moves
                 if next_moves_total and not next_moves:
                     next_moves = next_moves_player
                     self.game._ai_state = 'Forward Thinking'
+                    advanced_move_type = 3
             
             
             #Check for any n-1 points
             #Block enemy first then gain points
+            basic_move_type = 0
             if close_matches and chance_notice_basic:
             
                 already_moved = bool(next_moves)
                 
                 if close_matches[player]:
-                    if not chance_notice_advanced or not next_moves:
+                    if advanced_move_type != 1 or not next_moves:
                         next_moves = close_matches[player]
                         self.game._ai_state = 'Gaining Points'
+                        basic_move_type = 1
             
                 enemy_moves = []
                 for k, v in close_matches.iteritems():
@@ -894,6 +1049,13 @@ class ArtificialIntelligence(object):
                 
                 if enemy_moves:
                     if not next_moves or not random.uniform(0, 100) < chance_tactic:
+                        
+                        #If there is a move to block and gain at the same time
+                        if basic_move_type == 1:
+                            mixed_moves = [i for i in enemy_moves if i in close_matches[player]]
+                            if mixed_moves:
+                                enemy_moves = mixed_moves
+                        
                         next_moves = enemy_moves
                         self.game._ai_state = 'Blocking Opposition'
                         
@@ -924,14 +1086,15 @@ class ArtificialIntelligence(object):
                 
         
         #Make a semi random placement
-        if (not next_moves or not self.game._ai_state) and not chance_ignore and random.uniform(0, 100) > chance_ignore:
-            next_moves = self.points_bestcell(player)
+        if (not next_moves or not self.game._ai_state) and random.uniform(0, 100) > chance_ignore_far:
+            next_moves = self.find_best_cell(player)
             self.game._ai_state = 'Predictive placement'
             
         #Make a totally random move
-        if not next_moves or not self.game._ai_state:
+        else:
             next_moves = [i for i in self.game.core._range_lg if not self.game.core.grid[i]]
             self.game._ai_state = 'Random placement'
+            
                 
         ai_text('AI Objective: {}.'.format(self.game._ai_state))
         n = random.choice(next_moves)
@@ -946,7 +1109,6 @@ class ArtificialIntelligence(object):
         ai_text('Chosen Move: {}'.format(self.game._ai_move))
         ai_text('Calculations: {}'.format(self.calculations + 1))
         
-        #print state, self.game._ai_text
         self.game._ai_running = False
         return self.game._ai_move
         
@@ -954,39 +1116,36 @@ class ArtificialIntelligence(object):
     def difficulty(self, level=None):
         """Preset parameters for the bot difficulty levels.
         
+        Each difficulty levels has 3 different variables to control how
+        the AI behaves.
+        
+        The first one is 'change of changing tactic', which is how
+        likely it is to not follow the default priorities. This makes 
+        it seem a little more dynamic, as it doesn't always do the same
+        thing given the same input. Note that this only controls two
+        priorities of the same type, so it'll never choose a n-2 row
+        over n-1 for example, but it may gain points instead of block
+        them.
+        
+        The second on is 'chance of not noticing near', which is the
+        overall chance of missing an n-1 row.
+        
+        The third one is 'chance of not noticing far', which is the
+        same as above but for n-2 rows. This should be higher than
+        the n-1 rows.
+            
         Parameters:
             level (str/int): Difficulty level to get the data for.
-            
-            _default (str/int): If level is invalid, use this as the default value.
-        
-        There are 3 variables to control the chance of doing something differently:
-            Changing Tactic - Normally the computer will give priority to blocking an
-                enemy row of n-1 before completing it's own, and adding to a row of
-                n-2 before blocking the enemy. This is the percent chance to override
-                this behavior.
-            
-            Not Noticing - The chance the computer will miss a row that is almost complete.
-                Without this, the computer will be able to block absolutely everything 
-                unless it is tricked.
-                Leave this quite high for the n-2 rows, since it can be frustrating to
-                have every row blocked before you've even half finished it.
-            
-            Not Noticing Divide - Not noticing rows of n-2 keeps the game flowing, 
-                not noticing rows of n-1 makes it too easy to win. This will reduce the
-                'Not Noticing' chance for rows of n-1 so the computer doesn't look
-                like it's totally blind.
-            
-            In addition to the 'Not Noticing Divide', as the grid is more empty and is
-            easy to see, the chance of not noticing something is reduced.    
+                Default: 2
         """
         if level is None:
             level = self.DEFAULT_DIFFICULTY
         
-        level_data = [(75, 95, 1), #Beginner
-                      (50, 75, 2), #Easy
-                      (40, 50, 3), #Medium
-                      (20, 25, 3),  #Hard
-                      (0, 0, 1)]    #Extreme
+        level_data = [(75, 95, 95), #Beginner
+                      (50, 35, 75), #Easy
+                      (40, 15, 50), #Medium
+                      (20, 5, 25),  #Hard
+                      (0, 0, 0)]    #Extreme
                       
         return level_data[level]
         
@@ -994,6 +1153,19 @@ class ArtificialIntelligence(object):
 #PYGAME STUFF
 class DrawData(object):
     def __init__(self, C3DCore, length, angle, padding, offset):
+        """Class for holding all the data to do with drawing the grid
+        to the screen.
+        
+        Parameters:
+            length (int/float): Length of each side of the grid.
+            
+            angle (int/float): Isometric angle of the grid
+            
+            padding (int/float): Space between each grid level.
+            
+            offset (list/tuple): X/Y coordinates to offset each
+                generated coordinate with.
+        """
         self.core = C3DCore
         self.length = length
         self.angle = angle
@@ -1002,9 +1174,10 @@ class DrawData(object):
         self.recalculate()
     
     def recalculate(self):
-        """Perform the main calculations on the values in __init__.
-        This allows updating any of the values, such as the isometric
-        angle, without creating a new class."""
+        """Perform the main calculations on the values in __init__().
+        This allows updating any of the values, such as a new isometric
+        angle, without creating a new class.
+        """
         
         self.size_x = self.length * math.cos(math.radians(self.angle))
         self.size_y = self.length * math.sin(math.radians(self.angle))
@@ -1065,9 +1238,11 @@ class DrawData(object):
                                            (start[0] - self.size_x_sm, start[1] - self.size_y_sm))]
         
         
-    def game_to_block_index(self, gx, gy):
-        """Return index of block at the game coordinates gx, gy, or None if
-        there is no block at those coordinates."""
+    def game_to_block_index(self, coordinate):
+        """Calculate the cell index from the coordinate.
+        If there is no cell, return None.
+        """
+        gx, gy = coordinate
         gx -= self.offset[0]
         gy -= self.offset[1] - self.centre
         z = int(gy // self.chunk_height)
@@ -1098,6 +1273,13 @@ class GameCore(object):
     TIMER_DEFAULT = 200
     
     def __init__(self, C3DGame):
+        """Class to hold all the Pygame information.
+        
+        Parameters:
+            C3DGame (Connect3DGame): Needed to run the code.
+                GameCore hooks into the Connect3DGame class and
+                directly uses and edits the values.
+        """
         self.game = C3DGame
         self.timer_count = self.TIMER_DEFAULT
         self.timer_enabled = True
@@ -1105,15 +1287,25 @@ class GameCore(object):
         self.colour_order = [GREEN, YELLOW, LIGHTBLUE, PINK, PURPLE, RED]
         self.player_colours = list(self.colour_order)
         random.shuffle(self.player_colours)
+        
+        random_colours = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for i in range(254 - len(self.colour_order))]
+        self.colour_order += random_colours
+        self.player_colours += random_colours
     
     def __repr__(self):
         return self.game.__repr__()
-    
-    def exit(self):
-        """Handle ending the game from anywhere."""
-        self.update_state(None)
 
     def _new_surface(self, height, blit_list, rect_list):
+        """Create and return a new surface from the inputs.
+        
+        Parameters:
+            height (int): How tall the surface should be.
+            
+            blit_list (list): List of fonts to blit to surface.
+            
+            rect_list (list): List of rectangles to blit to the surface.
+        """
+        
         surface = pygame.Surface((self.menu_width, height + self.menu_padding))
         surface.fill(WHITE)
         
@@ -1125,22 +1317,66 @@ class GameCore(object):
         
         return surface
         
-    def _grid_surface(self, core=None, draw=None, hover=None, pending=None, early=None, background=None, player_colours=None, width=None, height=None):
+    def _grid_surface(self, core=None, draw=None, hover=None, pending=None, background=None, player_colours=None, width=None, height=None):
+        """Use the DrawData class to draw the grid to a surface.
+        
+        Parameters:
+            core (Connect3D, optional): Custom Connect3D class to use.
+                May be a different size or contain a different grid.
+                Default: self.game.core
+            
+            draw (DrawData, optional): Custom DrawData class to use.
+                May have different dimensions to the self.draw
+                Default: self.draw
+            
+            hover (list/tuple, optional): Cell that is being hovered 
+                over.
+                hover[0]: ID of cell.
+                hover[1]: Player that is hovering.
+                    This allows the player to be changed before a move
+                    has been committed.
+                Default: None
+            
+            pending (list/tuple, optional): Cell that is being moved 
+                into.
+                pending[0]: ID of cell.
+                pending[1]: Time to commit move, calculated by current
+                    time + move wait time.
+                pending[2]: If the players mouse is hovering over the
+                    block. 
+                    If the mouse is released while this is True, the 
+                    move will be cancelled.
+                pending[3]: If the move should be commited once
+                    pending[1] has reached the time limit.
+                Default: None
+            
+            background (list/tuple, optional): Background colour to use.
+                Since transparency affects anti-aliasing, the grid can't
+                be drawn to a transparent surface, so the background 
+                must be set here.
+                Default: BACKGROUND
+            
+            player_colours (list/tuple, optional): List of colours to 
+                use for drawing cells.
+                Default: self.player_colours
+            
+            width (list/tuple, optional): Width of the surface.
+                Default: self.WIDTH
+            
+            height (list/tuple, optional): Height of the surface.
+                Default: self.HEIGHT
+        """
     
         colours = player_colours or self.player_colours
         core = core or self.game.core
         draw = draw or self.draw
-        extra = [hover, pending, early]
+        extra = [hover, pending]
         try:
             extra[0] = extra[0][0]
         except TypeError:
             pass
         try:
             extra[1] = extra[1][0]
-        except TypeError:
-            pass
-        try:
-            extra[2] = extra[2][0]
         except TypeError:
             pass
             
@@ -1183,10 +1419,6 @@ class GameCore(object):
                         #Holding down but moved away
                         else:
                             block_colour = mix_colour(WHITE, WHITE, player_colour)
-                    
-                    #Hovering over block between turns
-                    if i == extra[2]:
-                        block_colour = mix_colour(WHITE, WHITE, colours[early[1] - 1])
                 
                 #Square is taken by a player
                 else:
@@ -1205,12 +1437,48 @@ class GameCore(object):
         return surface
     
     def generate_draw_data(self, C3D, x, y, angle_range=None, width_limits=None, height_limits=None, start_offset=None):
-        #Set length and angle to fit on the screen
+        """Generate the DrawData class to fit a certain surface.
+        It'll start at the lowest size and increase until it is within
+        the requested size range.
         
+        The angle will be kept as low as possible, and only increase
+        when the grid is too wide and too short.
+        If the angle then reaches its maximum amount, the size of the
+        grid will be decreased.
+        
+        Paramaters:
+            C3D (Connect3D): Needed for DrawData to work.
+        
+            x (int, float): Maximum width.
+            
+            y (int, float): Maximum height.
+            
+            angle_range (list/tuple, optional): Minimum and maximum 
+                angle allowed.
+                Default: (1, 89)
+                Recommended: (24, 42)
+        
+            width_limits (list/tuple, optional): Highest and lowest
+                percentage of the width of what is an acceptable size.
+                Values are from 0 to 1.
+                Default: (0.95, 0.95)
+        
+            height_limits (list/tuple, optional): Highest and lowest
+                percentage of the height of what is an acceptable size.
+                Values are from 0 to 1.
+                Default: (0.95, 0.95)
+            
+            start_offset (list/tuple, optional): Extra offset to
+                apply to the coordinates.
+        """
+    
+        #Set length and angle to fit on the screen
         mid_point = [x // 2, y // 2]
         length = C3D.size
         
         angle_limits = angle_range or (1, 89)
+        if angle_limits[1] < angle_limits[0] or angle_limits[1] >= 90 or angle_limits[0] <= 0:
+            raise ValueError('incorrect angle limits')
         angle = angle_limits[0]
         
         offset = [mid_point[0], mid_point[1]]
@@ -1260,11 +1528,13 @@ class GameCore(object):
                 edited = True
                 
             if not edited:
-                #print draw.line_coordinates
                 return draw
         
-    def resize_screen(self, quick=False):
-        """Recalculate everything when a new width or height is set."""
+    def resize_screen(self):
+        """Recalculate everything when a new width or height is set.
+        This is very processing heavy, so should not be called unless
+        absolutely necessary.
+        """
         menu_width_multiplier = 20.5
         min_height = 200
         draw_width_limits = (0.85, 0.9)
@@ -1333,15 +1603,17 @@ class GameCore(object):
             '               1          1          1          1               ',   #corner to corner
             '   1                  1                  1                  1   ',   #corner to corner
             '            1            1            1            1            ']   #corner to corner
-            grid_data = [map(int, list(i.replace(' ', '0'))) for i in grid_data]
-            grid_data = [base64.b64encode(zlib.compress(str(bytearray(i)))) for i in grid_data]
+            Connect3D.from_str(grid_data[0])
+            #grid_data = [map(int, list(i.replace(' ', '0'))) for i in grid_data]
+            #grid_data = [base64.b64encode(zlib.compress(str(bytearray(i)))) for i in grid_data]
             
             self.example_grid = []
             width = int(self.menu_width / 2.5)
             height = int(width * 1.8)
             
             for i in grid_data:
-                C3D = Connect3D(4).load(i)
+                #C3D = Connect3D(4).load(i)
+                C3D = Connect3D.from_str(i)
                 draw = self.generate_draw_data(C3D, width, height)
                 surface = self._grid_surface(core=C3D, draw=draw, player_colours=[self.menu_colour], width=width, height=height, background=WHITE)
                 self.example_grid.append(surface)
@@ -1365,7 +1637,17 @@ class GameCore(object):
         self.update_state(update_state=False)
     
     def update_state(self, new_state=False, update_state=True):
-        """Calculations to be done when the state of the game is changed."""
+        """Calculations to be done when the state of the game is
+        changed.
+        
+        Parameters:
+            new_state (bool, str): What to update the state to.
+                If False, the state won't be updated.
+                If None, the game will end.
+            
+            update_state (bool): If the new state should be applied.
+                Set to False if only the calculations are needed.
+        """
         if update_state:
             try:
                 self.flag_data['LastState'] = self.state
@@ -1395,6 +1677,7 @@ class GameCore(object):
             pass
     
     def draw_surface_main_background(self):
+        """Generate the background of the main game."""
         
         grid_size = self.screen_grid.get_size()
         grid_location = [i - j / 2 for i, j in zip(self.mid_point, grid_size)]
@@ -1410,16 +1693,15 @@ class GameCore(object):
             self.background.blit(self.surface_time_remaining, grid_location)
     
     def draw_surface_main_grid(self):
-        """Draws the grid with coloured blocks to a surface."""
+        """Draws the main grid with coloured blocks to a surface."""
         
         try:
             hover = self.temp_data['Hover']
             pending = self.temp_data['PendingMove']
-            early = self.temp_data['EarlyHover']
         except AttributeError:
             hover = pending = early = None
         
-        self.screen_grid = self._grid_surface(hover=hover, pending=pending, early=early)
+        self.screen_grid = self._grid_surface(hover=hover, pending=pending)
     
     def draw_surface_main_time(self):
         """Renders the time remaining.
@@ -1439,7 +1721,7 @@ class GameCore(object):
             self.surface_time_remaining.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding))
     
     def draw_surface_main_title(self):
-        """Renders the display for the main game."""
+        """Renders the title display for the main game."""
         
         try:
             winner = self.temp_data['Winner']
@@ -1572,7 +1854,7 @@ class GameCore(object):
                     message = 'Forced move!'
                 else:
                     message = 'Switched players!'
-                last_player = self.game.previous_player(self.game._player, self.game._player_count)
+                last_player = self.game.previous_player(self.game._player)
                 message += ' (Player {} took too long)'.format(last_player)
             elif flipped:
                 message = 'Grid was flipped!'
@@ -1581,10 +1863,21 @@ class GameCore(object):
             self.surface_title.blit(font, ((self.WIDTH - size[0]) / 2, self.text_padding * 3 + main_size[1]))
         
         self._last_title = title
-        #self.draw_surface_main_time()  
     
     def draw_surface_menu_container(self, update_scroll=True):
+        """Renders the menu container.
         
+        This holds a surface, and allows vertical scrolling if the
+        surface is larger than the container.
+        
+        Parameters:
+            update_scroll (bool): If any scrolling should be applied.
+                Due to the surface coordinates being updated by the
+                container, but the container needs them updated first
+                in order to draw them correctly, the code must be run
+                twice whenever scrolling is used. This stops the scroll
+                moving double the distance.
+        """
         start_scroll = self.option_set['Scroll']
         if self.state == 'Menu':
             contents = self.screen_menu_background
@@ -1601,6 +1894,7 @@ class GameCore(object):
         max_height = self.HEIGHT - self.menu_location[1] * 4
         min_height = self.menu_padding
         menu_height = max(min_height, min(max_height, contents_size))
+        self.container_height = menu_height
         
         
         #Mouse wheel
@@ -1613,8 +1907,7 @@ class GameCore(object):
         
             
         #Scroll bar
-        scroll_top = self.scroll_padding
-        scroll_bottom = (menu_height - self.scroll_padding - scroll_top) * (menu_height / contents_size)
+        scroll_bottom = (menu_height - self.scroll_padding * 2) * (menu_height / contents_size)
         
         #Set correct offset
         if self.option_hover['Scroll'] is not None:
@@ -1623,14 +1916,15 @@ class GameCore(object):
             offset = self.option_set['Scroll']
         
         #Correctly size the scroll speed and scroll bar
-        offset_adjusted = self.scroll_padding * 3 + scroll_bottom - scroll_top - menu_height
+        offset_adjusted = self.scroll_padding * 2 + scroll_bottom - menu_height
         offset = max(offset_adjusted, min(0, offset))
             
-        scroll_top -= offset
+        scroll_dimensions = [self.menu_width - self.scroll_width // 2, self.scroll_padding - offset, self.scroll_width, scroll_bottom]
+        
         if offset_adjusted:
             offset *= (menu_height - contents_size) / offset_adjusted
+        self.container_offset = offset
             
-        scroll_dimensions = [self.menu_width - self.scroll_width // 2, scroll_top, self.scroll_width, scroll_bottom]
         if update_scroll:
         
             if self.option_set['Scroll'] is not None:
@@ -1836,6 +2130,11 @@ class GameCore(object):
         blit_list = []
         rect_list = []
         
+        try:
+            within_range = -self.container_offset - self.menu_font_size, self.HEIGHT - self.menu_location[1] * 4 - self.container_offset + self.menu_font_size
+        except AttributeError:
+            within_range = [-float('inf'), float('inf')]
+        
         #Render menu title
         if self.temp_data['Winner'] is None:
             title_message = 'Connect 3D'
@@ -1876,7 +2175,8 @@ class GameCore(object):
                     
                 result = self._generate_menu_selection('',
                                                 options, selected, temp_height,
-                                                blit_list, rect_list, centre=True)
+                                                blit_list, rect_list, centre=True,
+                                                draw=within_range[0] < height_current < within_range[1])
                 self.option_hover['PlayerChange'], temp_height = result
                 
                 if self.option_hover['PlayerChange'] is not None and mouse_clicked:
@@ -1886,13 +2186,11 @@ class GameCore(object):
                         del self.option_set['Players'][-1]
                         del self.option_hover['Players'][-1]
                         changed_players = True
-                        print True
                         
                     elif not self.option_hover['PlayerChange'] and not too_high:
                         self.option_set['Players'].append(self.game.ai.DEFAULT_DIFFICULTY + 1)
                         self.option_hover['Players'].append(None)
                         changed_players = True
-                        print False
                     
                     if changed_players:
                         self.option_set['ShuffleTurns'] += 1 if self.option_set['ShuffleTurns'] % 2 else -1
@@ -1905,7 +2203,6 @@ class GameCore(object):
             option_len = len(options)
             
             for id, player in enumerate(self.option_set['Players']):
-            
                 selected = []
                 dict_name = 'Player{}'.format(id + 1)
                 
@@ -1919,7 +2216,8 @@ class GameCore(object):
                 
                 result = self._generate_menu_selection('Player {}: '.format(id + 1),
                                                 options, selected, height_current,
-                                                blit_list, rect_list)
+                                                blit_list, rect_list,
+                                                draw=within_range[0] < height_current < within_range[1])
                 self.option_hover['Players'][id], height_current = result
                 height_current += self.menu_padding
                 
@@ -1944,7 +2242,8 @@ class GameCore(object):
                 
             result = self._generate_menu_selection('End when no rows are left?',
                                             options, selected, height_current,
-                                            blit_list, rect_list)
+                                            blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1])
             self.option_hover['EndEarly'], height_current = result
             
             if self.option_hover['EndEarly'] is not None and mouse_clicked:
@@ -1965,7 +2264,8 @@ class GameCore(object):
             turns = self.option_set['ShuffleTurns']
             result = self._generate_menu_selection('Flip grid every {} turn{}?'.format(turns, '' if turns == 1 else 's'),
                                             options, selected, height_current,
-                                            blit_list, rect_list)
+                                            blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1])
             self.option_hover['ShuffleLevel'], height_current = result
             
             if self.option_hover['ShuffleLevel'] is not None and mouse_clicked:
@@ -1997,7 +2297,8 @@ class GameCore(object):
                     
                 result = self._generate_menu_selection('',
                                                 options, selected, height_current,
-                                                blit_list, rect_list, centre=True)
+                                                blit_list, rect_list, centre=True,
+                                                draw=within_range[0] < height_current < within_range[1])
                 self.option_hover['ShuffleTurns'], height_current = result
                 
                 if self.option_hover['ShuffleTurns'] is not None and mouse_clicked:
@@ -2029,7 +2330,8 @@ class GameCore(object):
                 
             result = self._generate_menu_selection('Use a turn time limit?',
                                             options, selected, height_current,
-                                            blit_list, rect_list)
+                                            blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1])
             self.option_hover['TimeEnabled'], height_current = result
             
             if self.option_hover['TimeEnabled'] is not None and mouse_clicked:
@@ -2054,7 +2356,8 @@ class GameCore(object):
                 timer = self.TIMER_DEFAULT if not self.timer_count else self.timer_count
                 result = self._generate_menu_selection('Limited to {} seconds.'.format(timer),
                                                 options, selected, height_current,
-                                                blit_list, rect_list)
+                                                blit_list, rect_list,
+                                                draw=within_range[0] < height_current < within_range[1])
                 self.option_hover['TimeChange'], height_current = result
                 
                 #If clicked and held, only run once to stop an increment every frame
@@ -2085,7 +2388,8 @@ class GameCore(object):
             
             result = self._generate_menu_selection('Grid size is {}.'.format(self.option_set['GridSize']),
                                             options, selected, height_current,
-                                            blit_list, rect_list)
+                                            blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1])
             self.option_hover['GridSize'], height_current = result
             
             if (self.option_hover['GridSize'] is not None and mouse_clicked 
@@ -2100,7 +2404,8 @@ class GameCore(object):
             if self.option_set['GridSize'] > 5 and any(self.option_set['Players']):
                 result = self._generate_menu_selection('Warning: The AI will run extremely slow!',
                                                 [], [], height_current,
-                                                blit_list, rect_list, centre=True)
+                                                blit_list, rect_list, centre=True,
+                                                draw=within_range[0] < height_current < within_range[1])
                 _, height_current = result
     
                 height_current += self.menu_padding
@@ -2126,7 +2431,8 @@ class GameCore(object):
                         
                     result = self._generate_menu_selection('Show debug information?',
                                                     options, selected, height_current,
-                                                    blit_list, rect_list)
+                                                    blit_list, rect_list,
+                                                    draw=within_range[0] < height_current < within_range[1])
                     self.option_hover['Debug'], height_current = result
                     
                     if self.option_hover['Debug'] is not None and mouse_clicked:
@@ -2140,6 +2446,7 @@ class GameCore(object):
             result = self._generate_menu_button('Start Game',
                                             self.option_hover['OptionNewGame'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=2)
             self.option_hover['OptionNewGame'], _ = result
             if self.option_hover['OptionNewGame'] and mouse_clicked:
@@ -2150,6 +2457,7 @@ class GameCore(object):
             result = self._generate_menu_button('Instructions',
                                             self.option_hover['OptionInstructions'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=0)
             self.option_hover['OptionInstructions'], height_current = result
             height_current += self.menu_padding * 2
@@ -2159,16 +2467,18 @@ class GameCore(object):
             result = self._generate_menu_button('Quit To Desktop',
                                             self.option_hover['OptionQuit'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=1)
             self.option_hover['OptionQuit'], height_current = result
             height_current += self.menu_padding
             if self.option_hover['OptionQuit'] and mouse_clicked:
-                self.exit()
+                self.update_state(None)
         
         else:
             result = self._generate_menu_button('Instructions',
                                             self.option_hover['OptionInstructions'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=1)
             self.option_hover['OptionInstructions'], height_current = result
             height_current += self.menu_padding * 2
@@ -2177,13 +2487,15 @@ class GameCore(object):
                 
             result = self._generate_menu_selection('Restart game to apply settings.',
                                             [], [], height_current,
-                                            blit_list, rect_list, centre=True)
+                                            blit_list, rect_list, centre=True,
+                                            draw=within_range[0] < height_current < within_range[1])
             _, height_current = result
             height_current += self.menu_padding * 2
             
             result = self._generate_menu_button('Continue',
                                             self.option_hover['OptionContinue'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=0)
             self.option_hover['OptionContinue'], _ = result
             if self.option_hover['OptionContinue'] and mouse_clicked:
@@ -2192,6 +2504,7 @@ class GameCore(object):
             result = self._generate_menu_button('New Game',
                                             self.option_hover['OptionNewGame'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=2)
             self.option_hover['OptionNewGame'], height_current = result
             height_current += self.menu_padding * 2
@@ -2203,11 +2516,12 @@ class GameCore(object):
             result = self._generate_menu_button('Quit To Desktop',
                                             self.option_hover['OptionQuit'], 
                                             height_current, blit_list, rect_list,
+                                            draw=within_range[0] < height_current < within_range[1],
                                             align=1)
             self.option_hover['OptionQuit'], height_current = result
             height_current += self.menu_padding
             if self.option_hover['OptionQuit'] and mouse_clicked:
-                self.exit()
+                self.update_state(None)
             
         #Ask about advanced options
         if True:
@@ -2224,7 +2538,8 @@ class GameCore(object):
             result = self._generate_menu_selection('Show advanced options?',
                                             options, selected, height_current,
                                             blit_list, rect_list, centre=True,
-                                            important=False)
+                                            important=False,
+                                            draw=within_range[0] < height_current < within_range[1])
             self.option_hover['AdvancedOptions'], height_current = result
             height_current += self.menu_padding
             
@@ -2263,7 +2578,7 @@ class GameCore(object):
                 ' Offset: {}'.format(map(int, self.draw.offset)),
                 'MOUSE:',
                 ' Coordinates: {}'.format(self.frame_data['MousePos']),
-                ' Block ID: {}'.format(self.draw.game_to_block_index(*self.frame_data['MousePos'])),
+                ' Block ID: {}'.format(self.draw.game_to_block_index(self.frame_data['MousePos'])),
                 'PYGAME:',
                 ' Redraw: {}'.format(self.frame_data['Redraw']),
                 ' Ticks: {}'.format(self.frame_data['GameTime'].total_ticks),
@@ -2312,7 +2627,7 @@ class GameCore(object):
         return height_current
     
     def _generate_menu_button(self, message, hover, height_current, 
-                              blit_list, rect_list, align=1):
+                              blit_list, rect_list, draw=True, align=1):
         multiplier = 1
         
         #Set up text
@@ -2320,37 +2635,41 @@ class GameCore(object):
         font = self.font_lg_m.render(message, 1, colour)
         size = font.get_rect()[2:]
         
+        
+        hovering = False
         offset = ((self.menu_width - self.scroll_width) * (0.5 + align / 2) - size[0]) / 2
         
         square = (offset - self.menu_box_padding,
                   height_current - self.menu_box_padding / 2,
                   size[0] + self.menu_box_padding * 2,
                   size[1] + self.menu_box_padding)
-    
-        #rect_list.append([self.menu_colour, square])
-        blit_list.append((font, (offset, height_current)))
-        height_current += square[3]
         
-        hovering = False
-        
-        #Detect if mouse is over it
-        try:
-            x, y = self.frame_data['MousePos']
-        except (AttributeError, KeyError):
-            pass
-        else:
-            x -= self.menu_location[0] + self.scroll_width // 2
-            y -= self.menu_location[1] + self.scroll_offset
-            x_selected = square[0] < x < square[0] + square[2]
-            y_selected = square[1] < y < square[1] + square[3]
-            if x_selected and y_selected:
-                hovering = True
+        if draw or self.option_hover['Scroll']:
+            #rect_list.append([self.menu_colour, square])
+            blit_list.append((font, (offset, height_current)))
+            height_current += square[3]
             
+            #Detect if mouse is over it
+            try:
+                x, y = self.frame_data['MousePos']
+            except (AttributeError, KeyError):
+                pass
+            else:
+                x -= self.menu_location[0] + self.scroll_width // 2
+                y -= self.menu_location[1] + self.scroll_offset
+                x_selected = square[0] < x < square[0] + square[2]
+                y_selected = square[1] < y < square[1] + square[3]
+                if x_selected and y_selected:
+                    hovering = True
+            
+        else:
+            height_current += square[3]
+                
         return (hovering, height_current)
         
     def _generate_menu_selection(self, message, options, selected, 
                                  height_current, blit_list, rect_list, 
-                                 centre=False, font=None, important=True):
+                                 draw=True, centre=False, font=None, important=True):
         
         font_type = font or self.font_md_m
         
@@ -2359,79 +2678,81 @@ class GameCore(object):
         fonts = [font_type.render(option, 1, BLACK) for option in options]
         sizes = [option.get_rect()[2:] for option in fonts]
         
-        offset = 0
-        if centre:
-            size_sum = sum(i[0] + 2 for i in sizes) + start_size[0]
-            offset = (self.menu_width - size_sum - self.scroll_width / 2) // 2
-    
-        if message:
-            start_size[0] += 2
-            blit_list.append((font, (self.width_padding * 2 + offset, height_current)))
-        
-        
-        
-        #Calculate square sizes
-        square_list = []
-        num_options = len(options)
-        for i, size in enumerate(sizes):
-            width_offset = (sum(j[0] + 2 for j in sizes[:i])
-                            + self.width_padding * (i + 1) #gap between the start
-                            + start_size[0] + offset)
-            
-            #Correctly apply width offset
-            if not i:
-                width_offset1 = width_offset - self.menu_box_padding / 2
-                width_offset2 = size[0] + self.menu_box_padding
-            elif i == num_options - 1:
-                width_offset1 = width_offset - self.menu_box_padding / 4
-                width_offset2 = size[0] + self.menu_box_padding / 2
-            else:
-                width_offset1 = width_offset - self.menu_box_padding / 4
-                width_offset2 = size[0] + self.menu_box_padding / 2
-                
-            square = (width_offset1,
-                     height_current - self.menu_box_padding / 4,
-                     width_offset2,
-                     size[1] + self.menu_box_padding / 4)
-            square_list.append(square)
-    
-            #Set colours
-            order = ('Background', 'Foreground')
-            
-            colours = list(SELECTION['Default'])
-            for j, selection in enumerate(selected[i]):
-                if selection:
-                    rect_colour, text_colour = list(SELECTION[order[j]])
-                    if rect_colour is not None:
-                        colours[0] = rect_colour
-                    if text_colour is not None:
-                        colours[1] = text_colour
-            rect_colour, text_colour = colours
-            if rect_colour == True:
-                rect_colour = self.menu_colour
-            if text_colour == True:
-                text_colour = self.menu_colour
-            
-            #Add to list
-            font = font_type.render(options[i], 1, text_colour)
-            blit_list.append((font, (width_offset, height_current)))
-            rect_list.append([rect_colour, square])
-    
         selected_block = None
-        if options:
-            try:
-                x, y = self.frame_data['MousePos']
-            except (AttributeError, KeyError):
-                pass
-            else:
-                x -= self.menu_location[0] + self.scroll_width // 2
-                y -= self.menu_location[1] + self.scroll_offset
-                for i, square in enumerate(square_list):
-                    x_selected = square[0] < x < square[0] + square[2]
-                    y_selected = square[1] < y < square[1] + square[3]
-                    if x_selected and y_selected:
-                        selected_block = i
+        if draw or self.option_hover['Scroll']:
+            offset = 0
+            if centre:
+                size_sum = sum(i[0] + 2 for i in sizes) + start_size[0]
+                offset = (self.menu_width - size_sum - self.scroll_width / 2) // 2
         
+            if message:
+                start_size[0] += 2
+                blit_list.append((font, (self.width_padding * 2 + offset, height_current)))
+            
+            
+            
+            #Calculate square sizes
+            square_list = []
+            num_options = len(options)
+            for i, size in enumerate(sizes):
+                width_offset = (sum(j[0] + 2 for j in sizes[:i])
+                                + self.width_padding * (i + 1) #gap between the start
+                                + start_size[0] + offset)
+                
+                #Correctly apply width offset
+                if not i:
+                    width_offset1 = width_offset - self.menu_box_padding / 2
+                    width_offset2 = size[0] + self.menu_box_padding
+                elif i == num_options - 1:
+                    width_offset1 = width_offset - self.menu_box_padding / 4
+                    width_offset2 = size[0] + self.menu_box_padding / 2
+                else:
+                    width_offset1 = width_offset - self.menu_box_padding / 4
+                    width_offset2 = size[0] + self.menu_box_padding / 2
+                    
+                square = (width_offset1,
+                         height_current - self.menu_box_padding / 4,
+                         width_offset2,
+                         size[1] + self.menu_box_padding / 4)
+                square_list.append(square)
+        
+                #Set colours
+                order = ('Background', 'Foreground')
+                
+                colours = list(SELECTION['Default'])
+                for j, selection in enumerate(selected[i]):
+                    if selection:
+                        rect_colour, text_colour = list(SELECTION[order[j]])
+                        if rect_colour is not None:
+                            colours[0] = rect_colour
+                        if text_colour is not None:
+                            colours[1] = text_colour
+                rect_colour, text_colour = colours
+                if rect_colour == True:
+                    rect_colour = self.menu_colour
+                if text_colour == True:
+                    text_colour = self.menu_colour
+                
+                #Add to list
+                font = font_type.render(options[i], 1, text_colour)
+                blit_list.append((font, (width_offset, height_current)))
+                rect_list.append([rect_colour, square])
+        
+            
+            if options:
+                try:
+                    x, y = self.frame_data['MousePos']
+                except (AttributeError, KeyError):
+                    pass
+                else:
+                    x -= self.menu_location[0] + self.scroll_width // 2
+                    y -= self.menu_location[1] + self.scroll_offset
+                    for i, square in enumerate(square_list):
+                        x_selected = square[0] < x < square[0] + square[2]
+                        y_selected = square[1] < y < square[1] + square[3]
+                        if x_selected and y_selected:
+                            selected_block = i
+            
         height_current += start_size[1]
         return (selected_block, height_current)
     
@@ -2440,15 +2761,19 @@ class GameCore(object):
         Until _ai_move or _ai_state is not None, it is not completed.
         """
         self.game._ai_move = self.game._ai_state = None
+        self.game._force_stop_ai = False
         if run:
-            ThreadHelper(self.game.ai.calculate_move, 
+            a=ThreadHelper(self.game.ai.calculate_move, 
                          self.game._player, 
                          difficulty=self.game._player_types[self.game._player - 1], 
-                         _range=self.game._range_players).start()
+                         player_range=self.game._range_players,
+                         _start_time = time.time())
+            a.start()
     
     def reload_game(self):
         old_size = self.game.core.size
         
+        self.game._force_stop_ai = True
         try:
             self.game = Connect3DGame(players=self.option_set['Players'], 
                                       shuffle_level=self.option_set['ShuffleLevel'],
@@ -2477,7 +2802,6 @@ class GameCore(object):
         #Reset any game data
         self.temp_data = {'Hover': None,
                           'PendingMove': None,
-                          'EarlyHover': None,
                           'Winner': None,
                           'ShuffleCount': 0,
                           'Flipped': False,
@@ -2549,7 +2873,7 @@ class GameCore(object):
             raise IOError('failed to load font')
         
         #Adjust width and height to fit on screen
-        self.height_ratio = 0.64
+        self.height_ratio = 0.68
         self.HEIGHT = int(pygame.display.Info().current_h * 0.88 / 16) * 16
         self.WIDTH = int(self.HEIGHT * self.height_ratio)
         self.update_state('Menu')
@@ -2634,7 +2958,6 @@ class GameCore(object):
                 
                 self.draw_surface_debug()
                 
-                
                 #---MAIN LOOP END---#
                 if self.frame_data['Redraw']:
                     pygame.display.flip()
@@ -2714,7 +3037,7 @@ class GameCore(object):
         if self.frame_data['MouseUse']:
             
             self.frame_data['GameTime'].temp_fps(self.FPS_MAIN)
-            mouse_block_id = self.draw.game_to_block_index(*self.frame_data['MousePos'])
+            mouse_block_id = self.draw.game_to_block_index(self.frame_data['MousePos'])
             
             #Disable mouse if winner
             if self.temp_data['Winner'] is not None:
@@ -2722,7 +3045,7 @@ class GameCore(object):
             
             #Enemy has finished their go, gets rid of the 'frozen game' effect
             if self.temp_data['PendingMove'] is not None and self.temp_data['PendingMove'][3]:
-                next_player = self.game.next_player(self.game._player, self.game._player_count)
+                next_player = self.game.next_player(self.game._player)
                 
                 #Re-activate hover if next player is human
                 if self.game._player_types[next_player - 1] < 0:
@@ -2841,7 +3164,7 @@ class GameCore(object):
                     self.temp_data['PendingMove'] = None
                     self.temp_data['Skipped'] = False
                     self.game.core.grid[block_id] = self.game._player
-                    self.game._player = self.game.next_player(self.game._player, self.game._player_count)
+                    self.game._player = self.game.next_player(self.game._player)
                 
                     #Shuffle grid
                     self.temp_data['ShuffleCount'] += 1
@@ -2862,7 +3185,7 @@ class GameCore(object):
         
         if force_end:
             if force_end == 1:
-                self.game._player = self.game.next_player(self.game._player, self.game._player_count)
+                self.game._player = self.game.next_player(self.game._player)
             self.temp_data['MoveTimeLeft'] = None
             self.temp_data['Skipped'] = force_end
             self.draw_surface_main_title()
@@ -2911,5 +3234,6 @@ class GameCore(object):
                 self.screen.blit(self.screen_menu_holder, location)
 
             
-c = Connect3DGame(players=(0, True))
+#c = Connect3DGame(players=(0, True))
+c = Connect3DGame(players=(True for i in range(100)))
 c.play()
