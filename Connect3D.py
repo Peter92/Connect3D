@@ -3233,7 +3233,6 @@ class GameCore(object):
                 location[0] += self.scroll_width // 2
                 self.screen.blit(self.screen_menu_holder, location)
 
-            
-#c = Connect3DGame(players=(0, True))
-c = Connect3DGame(players=(True for i in range(100)))
-c.play()
+if __name__ == '__main__':
+    c = Connect3DGame(players=(0, True))
+    c.play()
