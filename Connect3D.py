@@ -2766,8 +2766,7 @@ class GameCore(object):
             a=ThreadHelper(self.game.ai.calculate_move, 
                          self.game._player, 
                          difficulty=self.game._player_types[self.game._player - 1], 
-                         player_range=self.game._range_players,
-                         _start_time = time.time())
+                         player_range=self.game._range_players)
             a.start()
     
     def reload_game(self):
