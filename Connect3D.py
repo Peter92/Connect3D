@@ -14,8 +14,8 @@ try:
     import pygame
 except ImportError:
     pygame = None
-VERSION = '2.0.1'
-    
+VERSION = '2.0.2'
+
 BACKGROUND = (252, 252, 255)
 LIGHTBLUE = (86, 190, 255)
 LIGHTGREY = (200, 200, 200)
@@ -335,7 +335,7 @@ class Connect3D(object):
             level = self.shuffle_level
             
         #Shuffle is disabled
-        elif not level:
+        if not level:
             return False
             
         all_flips = (self.flip.fx, self.flip.fy, self.flip.fz, 
@@ -1263,8 +1263,8 @@ class DrawData(object):
 class GameCore(object):
 
     FPS_IDLE = 5
-    FPS_MAIN = 60
-    FPS_SMOOTH = 120
+    FPS_MAIN = 24
+    FPS_SMOOTH = 60
     
     TICKS = 120
     WIDTH = 640
@@ -1585,40 +1585,35 @@ class GameCore(object):
         
         #Generate example grids
         try:
-            self.menu_colour
+            colour_to_use = self.menu_colour
         except AttributeError:
-            pass
-        else:
-            grid_data = [
-            '                    1111                                        ',   #across
-            '                 1   1   1   1                                  ',   #across
-            '                   1  1  1  1                                   ',   #diagonal flat
-            '                1    1    1    1                                ',   #diagonal flat
-            '     1               1               1               1          ',   #down
-            '    1                1                1                1        ',   #diagonal down
-            '       1              1              1              1           ',   #diagonal down
-            ' 1                   1                   1                   1  ',   #diagonal down
-            '             1           1           1           1              ',   #diagonal down
-            '1                    1                    1                    1',   #corner to corner
-            '               1          1          1          1               ',   #corner to corner
-            '   1                  1                  1                  1   ',   #corner to corner
-            '            1            1            1            1            ']   #corner to corner
-            Connect3D.from_str(grid_data[0])
-            #grid_data = [map(int, list(i.replace(' ', '0'))) for i in grid_data]
-            #grid_data = [base64.b64encode(zlib.compress(str(bytearray(i)))) for i in grid_data]
+            colour_to_use = (0, 0, 0)
+        grid_data = [
+        '                    1111                                        ',   #across
+        '                 1   1   1   1                                  ',   #across
+        '                   1  1  1  1                                   ',   #diagonal flat
+        '                1    1    1    1                                ',   #diagonal flat
+        '     1               1               1               1          ',   #down
+        '    1                1                1                1        ',   #diagonal down
+        '       1              1              1              1           ',   #diagonal down
+        ' 1                   1                   1                   1  ',   #diagonal down
+        '             1           1           1           1              ',   #diagonal down
+        '1                    1                    1                    1',   #corner to corner
+        '               1          1          1          1               ',   #corner to corner
+        '   1                  1                  1                  1   ',   #corner to corner
+        '            1            1            1            1            ']   #corner to corner
+        
+        self.example_grid = []
+        width = int(self.menu_width / 2.5)
+        height = int(width * 1.8)
+        
+        for i in grid_data:
+            C3D = Connect3D.from_str(i)
+            draw = self.generate_draw_data(C3D, width, height)
+            surface = self._grid_surface(core=C3D, draw=draw, player_colours=[colour_to_use], width=width, height=height, background=WHITE)
+            self.example_grid.append(surface)
             
-            self.example_grid = []
-            width = int(self.menu_width / 2.5)
-            height = int(width * 1.8)
-            
-            for i in grid_data:
-                #C3D = Connect3D(4).load(i)
-                C3D = Connect3D.from_str(i)
-                draw = self.generate_draw_data(C3D, width, height)
-                surface = self._grid_surface(core=C3D, draw=draw, player_colours=[self.menu_colour], width=width, height=height, background=WHITE)
-                self.example_grid.append(surface)
-                
-            self.example_grid_count = len(self.example_grid)
+        self.example_grid_count = len(self.example_grid)
                 
         
         #Get menu size
@@ -1985,7 +1980,7 @@ class GameCore(object):
         height_current = self._generate_menu_title(title_message, subtitle_message, height_current, blit_list)
         
         text_chunks = [
-        'Version: {} (February 2016)'.format(VERSION),
+        'Version: {} (August 2016)'.format(VERSION),
         'Website: http://peterhuntvfx.co.uk',
         'Email: peterhuntvfx@yahoo.com',
         ]
@@ -2008,7 +2003,7 @@ class GameCore(object):
         '',
         'This is a much more optimised version of the game with',
         'a few extra features added and AI slightly tweaked. It ',
-        'has only been tested by me so far, so you may still find',
+        'has only been tested by two of us, so you may still find',
         'a few bugs.'
         
         ]
@@ -2073,6 +2068,8 @@ class GameCore(object):
             selected.append([background, foreground])
         
         current_grid = self.option_set['OptionDirectionExample'] % self.example_grid_count
+            
+            
         result = self._generate_menu_selection('Here are examples of each direction ({}/{}):'.format(current_grid + 1, self.example_grid_count),
                                         options, selected, height_current,
                                         blit_list, rect_list,
@@ -2891,7 +2888,7 @@ class GameCore(object):
         
         GT = GameTime(self.FPS_MAIN, self.TICKS)
         tick_count = 0
-        while True:
+        while self.state is not None:
             with GameTimeLoop(GT) as game_time:
             
                 #Store frame specific things so you don't need to call it multiple times
@@ -2903,7 +2900,7 @@ class GameCore(object):
                                    'MouseClick': list(pygame.mouse.get_pressed()) + [0, 0],
                                    'Reload': False}
                 
-                self.frame_data['MouseUse'] = any(self.frame_data['MouseClick']) or any(self.frame_data['Keys'])
+                self.frame_data['MouseUse'] = any(self.frame_data['MouseClick'])# or any(self.frame_data['Keys'])
                 self.frame_data['KeyCTRL'] = self.frame_data['Keys'][pygame.K_RCTRL] or self.frame_data['Keys'][pygame.K_LCTRL]
                 self.frame_data['KeyAlt'] = self.frame_data['Keys'][pygame.K_RALT] or self.frame_data['Keys'][pygame.K_LALT]
                 self.frame_data['KeyShift'] = self.frame_data['Keys'][pygame.K_RSHIFT] or self.frame_data['Keys'][pygame.K_LSHIFT]
