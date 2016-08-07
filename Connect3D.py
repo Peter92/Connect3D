@@ -454,7 +454,7 @@ class Connect3D(object):
 class Connect3DGame(object):
     DEFAULT_PLAYERS = 2
     DEFAULT_SHUFFLE_TURNS = 3
-    MAX_PLAYERS = 254
+    MAX_PLAYERS = 255
     
     def __init__(self, players, shuffle_level=None, shuffle_turns=None, size=None):
         """Class for holding the game information.
@@ -1289,7 +1289,7 @@ class GameCore(object):
         self.player_colours = list(self.colour_order)
         random.shuffle(self.player_colours)
         
-        random_colours = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for i in range(254 - len(self.colour_order))]
+        random_colours = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for i in range(255 - len(self.colour_order))]
         self.colour_order += random_colours
         self.player_colours += random_colours
     
@@ -1719,7 +1719,6 @@ class GameCore(object):
     
     def draw_surface_main_title(self):
         """Renders the title display for the main game."""
-        
         try:
             winner = self.temp_data['Winner']
             pending_move = self.temp_data['PendingMove']
@@ -2215,7 +2214,7 @@ class GameCore(object):
                 selected = []
                 
                 player_count = len(self.option_set['Players'])
-                too_high = player_count >= min(self.game.MAX_PLAYERS, 254, len(self.colour_order) - 1)
+                too_high = player_count > min(self.game.MAX_PLAYERS, 255, len(self.colour_order) - 1)
                 too_low = player_count < 3
                 for i in range(option_len):
                     background = False
@@ -2252,31 +2251,33 @@ class GameCore(object):
             
             #Configure players
             options = ('Human', 'Beginner', 'Easy', 'Medium', 'Hard', 'Extreme')
-            option_len = len(options)
+            option_len = range(len(options))
             
             for id, player in enumerate(self.option_set['Players']):
-                selected = []
+                in_range = within_range[0] < height_current < within_range[1]
                 
-                for i in range(option_len):
-                    if id >= self.game._player_count:
-                        background = i == self.game.ai.DEFAULT_DIFFICULTY + 1
-                    else:
-                        background = i == self.game.players[id]
-                    foreground = i == self.option_set['Players'][id] or i == self.option_hover['Players'][id]
-                    selected.append((background, foreground))
+                if in_range:
+                    selected = []
+                    for i in option_len:
+                        if id >= self.game._player_count:
+                            background = i == self.game.ai.DEFAULT_DIFFICULTY + 1
+                        else:
+                            background = i == self.game.players[id]
+                        foreground = i == self.option_set['Players'][id] or i == self.option_hover['Players'][id]
+                        selected.append((background, foreground))
                 
-                result = self._generate_menu_selection('Player{}{}:'.format(' ' if id < 9 else '', id + 1, ' ' if id < 99 else ''),
-                                                options, selected, height_current,
-                                                blit_list, rect_list,
-                                                draw=within_range[0] < height_current < within_range[1])
-                self.option_hover['Players'][id], height_current = result
-                height_current += self.menu_padding
-                
-                if self.option_hover['Players'][id] is not None and mouse_clicked:
-                    self.option_set['Players'][id] = self.option_hover['Players'][id]
-                    if instant_restart:
-                        self.frame_data['Reload'] = True
+                    result = self._generate_menu_selection('Player{}{}:'.format(' ' if id < 9 else '', id + 1, ' ' if id < 99 else ''),
+                                                    options, selected, height_current,
+                                                    blit_list, rect_list)
+                    self.option_hover['Players'][id], height_current = result
                     
+                    if self.option_hover['Players'][id] is not None and mouse_clicked:
+                        self.option_set['Players'][id] = self.option_hover['Players'][id]
+                        if instant_restart:
+                            self.frame_data['Reload'] = True
+                else:
+                    height_current += self.font_md_size[1]
+                height_current += self.menu_padding
         
         height_current += self.menu_padding * 2
         
@@ -3019,7 +3020,6 @@ class GameCore(object):
                     self.frame_data['Redraw'] = True
                     
                 #---MAIN LOOP START---#
-                
                 if self.state == 'Main':
                     self.loop_main()
                 
@@ -3045,7 +3045,7 @@ class GameCore(object):
         return mouse_clicked
     
     def loop_main(self):
-    
+        
         #End the current game
         if self.temp_data['Winner'] is not None:
             self.draw_surface_main_title()
@@ -3150,7 +3150,6 @@ class GameCore(object):
                     
                 #Mouse button clicked
                 if self.frame_data['MouseClick'][0]:
-                    
                     #Player has just clicked
                     if self.temp_data['PendingMove'] is None:
                         if mouse_block_id is not None and not self.game.core.grid[mouse_block_id] and mouse_click_l:
@@ -3158,7 +3157,7 @@ class GameCore(object):
                                                              self.frame_data['GameTime'].total_ticks + self.MOVE_WAIT, 
                                                              True, 
                                                              False]
-                    
+                                                             
                     #Player is holding click over the block
                     elif mouse_block_id == self.temp_data['PendingMove'][0]:
                         self.temp_data['PendingMove'][2] = True
@@ -3216,7 +3215,6 @@ class GameCore(object):
         
         #Commit the move
         else:
-            
             #Moved cancelled
             if mouse_click_r and player_type < 0:
                 self.temp_data['PendingMove'] = None
@@ -3247,10 +3245,13 @@ class GameCore(object):
                     self.draw_surface_main_grid()
                     self.frame_data['Redraw'] = True
                     self.game.core.calculate_score()
+                    
+                    #This function is very heavy, consider moving into thread
+                    self.temp_data['Winner'] = self.game.check_game_end(self.option_set['EndEarly'])
         
             self.draw_surface_main_title()
             self.frame_data['Redraw'] = True
-            self.temp_data['Winner'] = self.game.check_game_end(self.option_set['EndEarly'])
+            
         
         
         if force_end:
@@ -3272,9 +3273,8 @@ class GameCore(object):
             self.update_state(update_state=False)
             self.flag_data['LastState'] = None
             self.flag_data['Redraw'] = True
-            
-        if self.frame_data['Redraw']:
         
+        if self.frame_data['Redraw']:
             #Run the initial calculations, and re-run to update hovering
             used_scroll = self.draw_surface_menu_container() and not self.option_hover['Scroll']
             for i in xrange(1 + used_scroll):
@@ -3298,5 +3298,5 @@ class GameCore(object):
 
 if __name__ == '__main__':
     c = Connect3DGame(players=(0, True))
-    #c = Connect3DGame(players=[3 for i in range(250)])
+    #c = Connect3DGame(players=[0 for i in range(255)])
     c.play()
