@@ -14,7 +14,7 @@ try:
     import pygame
 except ImportError:
     pygame = None
-VERSION = '2.0.3'
+VERSION = '2.0.4'
 
 BACKGROUND = (252, 252, 255)
 LIGHTBLUE = (86, 190, 255)
@@ -1716,7 +1716,7 @@ class GameCore(object):
             time_left = None
         
         if time_left is not None and self.timer_enabled:
-            time_left = int(round(time_left / self.TICKS + 0.1))
+            time_left = max(0, int(round(time_left / self.TICKS + 0.1)))
             message = '{} second{}'.format(time_left, 's' if time_left != 1 else '')
             font = self.font_sm.render(message, 1, BLACK)
             size = font.get_rect()[2:]
@@ -1732,8 +1732,9 @@ class GameCore(object):
         except AttributeError:
             winner = pending_move = skipped = flipped = None
             
+            
         #Display winner
-        if winner is not None:
+        if winner is not None and winner is not False:
             num_winners = len(winner)
             if len(winner) == 1:
                 title = "Player {} won!".format(winner[0])
@@ -1750,7 +1751,14 @@ class GameCore(object):
         #Don't instantly switch to player is thinking as it could be a quick click
         elif (pending_move is None
             or (not pending_move[3] and pending_move[1] > self.frame_data['GameTime'].total_ticks)):
+            
             title = "Player {}'s turn!".format(self.game._player)
+            try:
+                if self.timer_enabled and self.temp_data['MoveTimeLeft'] / self.TICKS < 0:
+                    title = "Please wait..."
+            except (AttributeError, TypeError):
+                pass
+                
             
         else:
             if pending_move[3]:
@@ -2056,8 +2064,7 @@ class GameCore(object):
         height_current = self._generate_menu_title(title_message, subtitle_message, height_current, blit_list)
         
         people = [('Peter Hunt', 'Design:Programming:Testing'),
-                  ('Damien Daco', 'Testing (Linux)'),
-                  ('Thomas Hunt', 'Testing (Local Multiplayer)')]
+                  ('Damien Daco', 'Testing (Linux)')]
         
         for name, credits in people:
             if not name:
@@ -2192,7 +2199,7 @@ class GameCore(object):
             within_range = [0, 0]
         
         #Render menu title
-        if self.temp_data['Winner'] is None:
+        if self.temp_data['Winner'] is None or self.temp_data['Winner'] is False:
             title_message = 'Connect 3D'
             subtitle_message = ''
         else:
@@ -2640,7 +2647,10 @@ class GameCore(object):
                 ' Redraw: {}'.format(self.frame_data['Redraw']),
                 ' Ticks: {}'.format(self.frame_data['GameTime'].total_ticks),
                 ' FPS: {}'.format(self.last_fps),
-                ' Desired FPS: {}'.format(self.frame_data['GameTime']._temp_fps or self.frame_data['GameTime'].GTObject.desired_fps)
+                ' Desired FPS: {}'.format(self.frame_data['GameTime']._temp_fps or self.frame_data['GameTime'].GTObject.desired_fps),
+                'THREADS:',
+                ' AI: {}'.format(self.game._ai_running),
+                ' Score: {}'.format(self.temp_data['Winner'] is False)
                 ]
                 
         fonts = [self.font_sm.render(format_text(i), 1, BLACK) for i in info]
@@ -2655,10 +2665,9 @@ class GameCore(object):
             
             fonts = [self.font_sm.render(format_text(i), 1, BLACK) for i in self.game._ai_text]
             sizes = [i.get_rect()[2:] for i in fonts]
-            for i in range(len(self.game._ai_text)):
+            for i in xrange(len(self.game._ai_text)):
                 message_height = self.HEIGHT - sum(j[1] for j in sizes[i:])
                 self.surface_debug.blit(fonts[i], (self.WIDTH - sizes[i][0] - self.text_padding, message_height))
-        
         
         #Redraw the background
         self.screen.blit(self.background, (0, 0))
@@ -2690,7 +2699,14 @@ class GameCore(object):
         
         if subtitle:
             font = self.font_md_m.render(subtitle, 1, BLACK)
-            blit_list.append((font, (self.width_padding * 2, height_current)))
+            size = font.get_rect()[2:]
+            if align == 0:
+                offset = self.width_padding * 2
+            elif align == 1:
+                offset = ((self.menu_width - self.scroll_width / 2) - size[0]) / 2
+            elif align == 2:
+                offset = (self.menu_width - self.width_padding * 2) - size[0] - self.scroll_width
+            blit_list.append((font, (offset, height_current)))
             height_current += self.menu_padding * 6
         else:
             height_current += self.menu_padding * (0 + 2 * (self.state == 'Menu'))
@@ -2987,6 +3003,7 @@ class GameCore(object):
                     
                 #Handle quitting and resizing window
                 if self.state is None:
+                    self.game._force_stop_ai = True
                     pygame.quit()
                     return
                 
@@ -3015,6 +3032,11 @@ class GameCore(object):
                             if self.state == 'Main':
                                 self.update_state('Menu')
                             else:
+                                self.update_state('Main')
+                        
+                        elif event.key == pygame.K_RETURN:
+                            if self.state == 'Menu':
+                                self.frame_data['Reload'] = True
                                 self.update_state('Main')
                                 
                     elif event.type == pygame.KEYUP:
@@ -3049,10 +3071,24 @@ class GameCore(object):
             self.flag_data['Disable'][i] = True
         return mouse_clicked
     
+    def score_thread(self, run=True):
+        self.temp_data['Winner'] = False
+        if run:
+            t = ThreadHelper(self._check_score)
+            t.start()
+    
+    def _check_score(self):
+        new_instance = Connect3DGame(players=self.option_set['Players'],
+                                     size=self.option_set['GridSize'])
+        new_instance.core.grid = bytearray(i for i in self.game.core.grid)
+        if self.temp_data['PendingMove'] is not None:
+            new_instance.core.grid[self.temp_data['PendingMove'][0]] = self.game._player
+        self.temp_data['Winner'] = new_instance.check_game_end(self.option_set['EndEarly'])
+    
     def loop_main(self):
         
         #End the current game
-        if self.temp_data['Winner'] is not None:
+        if self.temp_data['Winner'] is not None and self.temp_data['Winner'] is not False:
             self.draw_surface_main_title()
             self.update_state('Menu')
             
@@ -3068,9 +3104,10 @@ class GameCore(object):
                     'Version: {}'.format(VERSION),
                     'Date: {}'.format(time.time()),
                     'Time taken: {}'.format(self.frame_data['GameTime'].total_ticks / self.TICKS),
-                    'Winner: {}'.format(self.temp_data['Winner']),
                     'Players: {}'.format(list(self.game.players)),
-                    #'Grid Data: {}'.format(','.join(map(str, list(self.game.core.grid)))),
+                    'Score: {}'.format(dict(self.game.core.score)),
+                    'Winner: {}'.format(self.temp_data['Winner']),
+                    'Grid: {}'.format(', '.join(map(str, list(self.game.core.grid)))),
                     'Grid Data: {}'.format(''.join('{0:08b}'.format(i) for i in self.game.core.grid)),
                     'Size: {}'.format(self.game.core.size),
                     'Shuffle Level: {}'.format(self.game.core.shuffle_level),
@@ -3087,8 +3124,6 @@ class GameCore(object):
             
             return
     
-        mouse_click_l = self._mouse_click(0)
-        mouse_click_r = self._mouse_click(2)
     
         #Count ticks down
         force_end = False
@@ -3104,8 +3139,10 @@ class GameCore(object):
             if self.temp_data['MoveTimeLeft'] < 0:
                 force_end = True + (self.temp_data['PendingMove'] is not None)
                 self.draw_surface_main_title()
-        
         player_type = self.game._player_types[self.game._player - 1]
+        
+        mouse_click_l = self._mouse_click(0) and not force_end
+        mouse_click_r = self._mouse_click(2)
         
         #Moved mouse
         mouse_block_id = None
@@ -3115,7 +3152,7 @@ class GameCore(object):
             mouse_block_id = self.draw.game_to_block_index(self.frame_data['MousePos'])
             
             #Disable mouse if winner
-            if self.temp_data['Winner'] is not None:
+            if self.temp_data['Winner'] is not None and self.temp_data['Winner'] is not False:
                 mouse_block_id = None
             
             #Enemy has finished their go, gets rid of the 'frozen game' effect
@@ -3162,6 +3199,7 @@ class GameCore(object):
                                                              self.frame_data['GameTime'].total_ticks + self.MOVE_WAIT, 
                                                              True, 
                                                              False]
+                            self.score_thread()
                                                              
                     #Player is holding click over the block
                     elif mouse_block_id == self.temp_data['PendingMove'][0]:
@@ -3208,7 +3246,7 @@ class GameCore(object):
                                                          self.frame_data['GameTime'].total_ticks + self.MOVE_WAIT, 
                                                          True, 
                                                          True]
-                                                         
+                        self.score_thread()
                         self._run_ai(run=False)
                         
                 self.draw_surface_main_title()
@@ -3228,11 +3266,13 @@ class GameCore(object):
                 block_id, wait_until, hovering, accept = self.temp_data['PendingMove']
                 
                 #Cancelled move
-                if not accept and not hovering and not mouse_click_l:
+                if not accept and not hovering and not mouse_click_l and not force_end:
                     self.temp_data['PendingMove'] = block_id = wait_until = None
                     
-                if (block_id is not None and accept and self.frame_data['GameTime'].total_ticks > wait_until
-                    or force_end):
+                if (block_id is not None and accept 
+                    and self.frame_data['GameTime'].total_ticks > wait_until
+                    and self.temp_data['Winner'] is not False
+                    or force_end and self.temp_data['Winner'] is not False):
                     self.temp_data['MoveTimeLeft'] = None
                     self.temp_data['PendingMove'] = None
                     self.temp_data['Skipped'] = False
@@ -3252,14 +3292,12 @@ class GameCore(object):
                     self.game.core.calculate_score()
                     
                     #This function is very heavy, consider moving into thread
-                    self.temp_data['Winner'] = self.game.check_game_end(self.option_set['EndEarly'])
+                    #self.temp_data['Winner'] = self.game.check_game_end(self.option_set['EndEarly'])
         
             self.draw_surface_main_title()
             self.frame_data['Redraw'] = True
-            
         
-        
-        if force_end:
+        if force_end and self.temp_data['Winner'] is not False:
             if force_end == 1:
                 self.game._player = self.game.next_player(self.game._player)
             self.temp_data['MoveTimeLeft'] = None
