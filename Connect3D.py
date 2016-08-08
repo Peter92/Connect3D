@@ -950,12 +950,14 @@ class ArtificialIntelligence(object):
         not be running
         """
         self.game._ai_running = True
+        force_predictive = False
         
         #Default to 2 players
         if player_range is None:
             player_range = (1, 2)
         
         chance_tactic, chance_ignore_near, chance_ignore_far = self.difficulty(difficulty)
+        chance_ignore_block = 80
         
         total_moves = len([i for i in self.game.core.grid if i])
         self.calculations = 0
@@ -978,7 +980,7 @@ class ArtificialIntelligence(object):
             ai_text('Urgent: {}'.format(bool(close_matches)))
             
             #Chance of things happening
-            chance_ignore_near **= pow(total_moves / self.game.core._size_cubed, 0.25)
+            chance_ignore_near **= pow(total_moves / self.game.core._size_cubed, 0.1)
             chance_notice_basic = random.uniform(0, 100) > chance_ignore_near
             chance_notice_far = random.uniform(0, 100) > chance_ignore_far
             chance_notice_advanced = min(random.uniform(0, 100), random.uniform(0, 100)) > chance_ignore_far
@@ -1078,6 +1080,8 @@ class ArtificialIntelligence(object):
                         for k, v in far_matches.iteritems():
                             next_moves += v
                         self.game._ai_state = 'Looking Ahead (Blocking Opposition)'
+                        if random.uniform(0, 100) < chance_ignore_block:
+                            force_predictive = True
                 
             
             if not self.game._ai_state:
@@ -1087,14 +1091,15 @@ class ArtificialIntelligence(object):
                 
         
         #Make a semi random placement
-        if (not next_moves or not self.game._ai_state) and random.uniform(0, 100) > chance_ignore_far:
-            next_moves = self.find_best_cell(player)
-            self.game._ai_state = 'Predictive placement'
+        if (not next_moves or not self.game._ai_state) or force_predictive:
+            if random.uniform(0, 100) > chance_ignore_far:
+                next_moves = self.find_best_cell(player)
+                self.game._ai_state = 'Predictive placement'
             
-        #Make a totally random move
-        else:
-            next_moves = [i for i in self.game.core._range_lg if not self.game.core.grid[i]]
-            self.game._ai_state = 'Random placement'
+            #Make a totally random move
+            else:
+                next_moves = [i for i in self.game.core._range_lg if not self.game.core.grid[i]]
+                self.game._ai_state = 'Random placement'
             
                 
         ai_text('AI Objective: {}.'.format(self.game._ai_state))
