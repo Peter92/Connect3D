@@ -10,11 +10,17 @@ import cPickle
 import time
 import json
 import urllib2
+import socket
+import select
 try:
     import pygame
 except ImportError:
     pygame = None
 VERSION = '2.0.4'
+
+SERVER_PORT = 44672
+CLIENT_PORT = 44673
+
 
 BACKGROUND = (252, 252, 255)
 LIGHTBLUE = (86, 190, 255)
@@ -125,7 +131,27 @@ class GameTimeLoop(object):
         self.GTObject.desired_ticks = ticks
         self.ticks = 0
 
-        
+
+def find_local_ip():
+    
+    #1st method
+    try:
+        return ([l for l in ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1], 
+                [[(s.connect(('8.8.8.8', 53)), s.getsockname()[0], s.close()) for s in [socket.socket(socket.AF_INET, socket.SOCK_DGRAM)]][0][1]]) if l][0][0])
+    except socket.error:
+        return None
+    
+    #2nd method
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('8.8.8.8', 80))
+    except socket.gaierror:
+        return None
+    result = s.getsockname()[0]
+    s.close()
+    return result
+    
+    
 def format_text(x):
     """Format text to remove invalid characters."""
     left_bracket = ('[', '{')
@@ -1272,10 +1298,10 @@ class GameCore(object):
     FPS_MAIN = 24
     FPS_SMOOTH = 60
     
-    TICKS = 120
+    TICKS = 30
     WIDTH = 640
     HEIGHT = 960
-    MOVE_WAIT = 60
+    MOVE_WAIT = 20
     TIMER_DEFAULT = 200
     
     def __init__(self, C3DGame):
@@ -1297,10 +1323,131 @@ class GameCore(object):
         random_colours = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for i in range(255 - len(self.colour_order))]
         self.colour_order += random_colours
         self.player_colours += random_colours
+        
+        self.server = None
+        self.send_to_server = []
+        self.send_to_client = {}
+        self.server_data = {'NumConnections': 0,
+                            'Connections': {},
+                            'Hover': {}}
+        self.client_data = {'Connection': None,
+                            'Hover': {}}
+        
+        '''
+        try:
+            self._server_host()
+        except socket.error:
+            self._server_connect()
+            '''
     
     def __repr__(self):
         return self.game.__repr__()
 
+    def _server_host(self, port=SERVER_PORT):
+        local_ip = find_local_ip()
+        if not self.server and local_ip:
+            self.listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Bind to localhost - set to external ip to connect from other computers
+            self.listener.bind((local_ip, port))
+            self.read_list = [self.listener]
+            self.write_list = []
+            self.server = 1
+    
+    def _server_connect(self, addr='192.168.0.99', serverport=SERVER_PORT):
+        local_ip = find_local_ip()
+        if not self.server and local_ip:
+            self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            # Bind to localhost - set to external ip to connect from other computers
+            
+            offset = 0
+            while True:
+                try:
+                    self.clientport = CLIENT_PORT + offset
+                    self.conn.bind((local_ip, self.clientport))
+                    break
+                except socket.error:
+                    offset += 1
+                    if offset == 255:
+                        raise socket.error('too many players are trying to connect')
+            
+            self.addr = addr
+            self.serverport = serverport
+            
+            self.read_list = [self.conn]
+            self.write_list = []
+            self.server = 2
+            
+            self.send_to_server.append('c')
+            #self.conn.sendto('c', (self.addr, self.serverport))
+    
+    def _server_process(self):
+        
+        if self.server == 1:
+            
+            readable, writable, exceptional = (
+                select.select(self.read_list, self.write_list, [])
+            )
+            for f in readable:
+                if f is self.listener:
+                    data, addr = f.recvfrom(32)
+                    for msg in data.split(';'):
+                        if len(msg) >= 1:
+                            cmd = msg[0]
+                            if cmd == "c":  # New Connection
+                                self.server_data['Connections'][addr] = self.server_data['NumConnections']
+                                self.server_data['NumConnections'] += 1
+                                self.listener.sendto(str(self.server_data['Connections'][addr]), addr)
+                                print 'New connection: {}, assigned ID to {}'.format(addr, self.server_data['Connections'][addr])
+                            
+                            elif cmd == 'h':
+                                block_id, player = msg[1:].split('p')
+                                #print msg
+                                try:
+                                    block_id = int(block_id)
+                                except ValueError:
+                                    block_id = None
+                                self.server_data['Hover'][addr] = block_id
+                                    
+                            elif cmd == "d":  # Player Quitting
+                                print 'Disconnect: {}'.format(addr)
+                                del self.server_data['Connections'][addr]
+                           
+                            else:
+                                print "Unexpected: {0}".format(msg)
+                            print self.server_data
+            
+            #Send all the data at the end of each frame
+            for client in self.server_data['Connections']:
+                try:
+                    client_data = list(self.send_to_client[client])
+                except KeyError:
+                    client_data = []
+                
+                #Send all the hover values to everyone
+                for k, v in self.server_data['Hover'].iteritems():
+                    id = self.server_data['Connections'][k]
+                    client_data.append('h{}p{}'.format(v, id))
+                self.listener.sendto(';'.join(client_data), client)
+                self.send_to_client = {}
+                self.listener.sendto(self.game.core.grid, client)
+              
+        elif self.server == 2:
+            # select on specified file descriptors
+            readable, writable, exceptional = (
+                select.select(self.read_list, self.write_list, [], 0)
+            )
+            for f in readable:
+              if f is self.conn:
+                msg, addr = f.recvfrom(32)
+                print msg
+            #self.conn.sendto("uu", (self.addr, self.serverport))
+        
+            #Send all the data at the end of each frame
+            if self.send_to_server:
+                self.conn.sendto(';'.join(self.send_to_server), (self.addr, self.serverport))
+                self.send_to_server = []
+        
+        
     def _new_surface(self, height, blit_list, rect_list):
         """Create and return a new surface from the inputs.
         
@@ -2063,8 +2210,8 @@ class GameCore(object):
         subtitle_message = ''
         height_current = self._generate_menu_title(title_message, subtitle_message, height_current, blit_list)
         
-        people = [('Peter Hunt', 'Design:Programming:Testing'),
-                  ('Damien Daco', 'Testing (Linux)')]
+        people = [('Peter Hunt', 'Design:Programming:Networking'),
+                  ('Testing', 'Damien Daco (Networking, Linux):Thomas Hunt (Local Multiplayer)')]
         
         for name, credits in people:
             if not name:
@@ -2855,11 +3002,11 @@ class GameCore(object):
         self.game._ai_move = self.game._ai_state = None
         self.game._force_stop_ai = False
         if run:
-            a=ThreadHelper(self.game.ai.calculate_move, 
-                         self.game._player, 
-                         difficulty=self.game._player_types[self.game._player - 1], 
-                         player_range=self.game._range_players)
-            a.start()
+            t = ThreadHelper(self.game.ai.calculate_move, 
+                             self.game._player, 
+                             difficulty=self.game._player_types[self.game._player - 1], 
+                             player_range=self.game._range_players)
+            t.start()
     
     def reload_game(self):
         old_size = self.game.core.size
@@ -3004,6 +3151,10 @@ class GameCore(object):
                 #Handle quitting and resizing window
                 if self.state is None:
                     self.game._force_stop_ai = True
+                    if self.server:
+                        if self.server == 2:
+                            self.send_to_server.append('d')
+                        self._server_process()
                     pygame.quit()
                     return
                 
@@ -3056,6 +3207,9 @@ class GameCore(object):
                 self.draw_surface_debug()
                 
                 #---MAIN LOOP END---#
+                if self.server:
+                    self._server_process()
+                    
                 if self.frame_data['Redraw']:
                     pygame.display.flip()
                     
@@ -3105,7 +3259,7 @@ class GameCore(object):
                     'Date: {}'.format(time.time()),
                     'Time taken: {}'.format(self.frame_data['GameTime'].total_ticks / self.TICKS),
                     'Players: {}'.format(list(self.game.players)),
-                    'Score: {}'.format(dict(self.game.core.score)),
+                    'Score: {}'.format(str(dict(self.game.core.score))[1:-1]),
                     'Winner: {}'.format(self.temp_data['Winner']),
                     'Grid: {}'.format(', '.join(map(str, list(self.game.core.grid)))),
                     'Grid Data: {}'.format(''.join('{0:08b}'.format(i) for i in self.game.core.grid)),
@@ -3150,6 +3304,9 @@ class GameCore(object):
             
             self.frame_data['GameTime'].temp_fps(self.FPS_MAIN)
             mouse_block_id = self.draw.game_to_block_index(self.frame_data['MousePos'])
+            if self.server == 2:
+                self.send_to_server.append('h{}p{}'.format(mouse_block_id, self.game._player))
+                #self.conn.sendto('h{}p{}'.format(mouse_block_id, self.game._player), (self.addr, self.serverport))
             
             #Disable mouse if winner
             if self.temp_data['Winner'] is not None and self.temp_data['Winner'] is not False:
@@ -3341,5 +3498,4 @@ class GameCore(object):
 
 if __name__ == '__main__':
     c = Connect3DGame(players=(0, True))
-    #c = Connect3DGame(players=[0 for i in range(255)])
     c.play()
