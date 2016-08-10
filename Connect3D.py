@@ -12,6 +12,7 @@ import json
 import urllib2
 import socket
 import select
+import sys
 try:
     import pygame
 except ImportError:
@@ -20,6 +21,9 @@ VERSION = '2.0.4'
 
 SERVER_PORT = 44672
 CLIENT_PORT = 44673
+
+SERVER_PORT = 1337
+CLIENT_PORT = 34197
 
 BACKGROUND = (252, 252, 255)
 LIGHTBLUE = (86, 190, 255)
@@ -1298,7 +1302,7 @@ class GameCore(object):
     TICKS = 120
     WIDTH = 640
     HEIGHT = 960
-    MOVE_WAIT = 20
+    MOVE_WAIT = TICKS / 1.5
     TIMER_DEFAULT = 200
     
     def __init__(self, C3DGame):
@@ -1331,6 +1335,7 @@ class GameCore(object):
         self.client_data = {'Connection': None,
                             'Hover': {}}
         
+        #self._server_client()
         try:
             self._server_host()
         except socket.error:
@@ -1350,7 +1355,7 @@ class GameCore(object):
             self.write_list = []
             self.server = 1
     
-    def _server_client(self, addr='192.168.0.99', serverport=SERVER_PORT):
+    def _server_client(self, addr='82.29.54.123', serverport=SERVER_PORT):
         local_ip = find_local_ip()
         if not self.server and local_ip:
             self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -1374,8 +1379,8 @@ class GameCore(object):
             self.write_list = []
             self.server = 2
             
-            self.send_to_server.append('c')
-            #self.conn.sendto('c', (self.addr, self.serverport))
+            #self.send_to_server.append('c')
+            self.conn.sendto('c', (self.addr, self.serverport))
     
     def _server_process(self):
         
@@ -3280,6 +3285,7 @@ class GameCore(object):
                 self.send_to_server.append('d')
             self._server_process()
         pygame.quit()
+        sys.exit()
         return
 
     def _mouse_click(self, i=0):
@@ -3568,5 +3574,5 @@ class GameCore(object):
                 self.screen.blit(self.screen_menu_holder, location)
 
 if __name__ == '__main__':
-    c = Connect3DGame(players=[0])
+    c = Connect3DGame(players=[0, 0, 0, 0])
     c.play()
